@@ -1,1 +1,4 @@
 project_id = "caeymijirdxdoisswgae"
+
+[functions.youtube-transcript]
+verify_jwt = false

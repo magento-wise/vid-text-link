@@ -58,33 +58,37 @@ export function TranscriptInput({ onTranscriptReceived }: TranscriptInputProps) 
     setIsLoading(true);
     
     try {
-      // This would normally call your Supabase edge function
-      // For now, we'll simulate the process
       toast({
         title: "Processing...",
         description: "Starting video transcription. This may take a few minutes.",
       });
 
-      // Simulate API call delay
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      
-      // Mock transcript for demonstration
-      const mockTranscript = `This is a sample transcript for video ${videoId}. In a real implementation, this would be the actual transcript from AssemblyAI after processing the YouTube video audio.
+      // Call the Supabase edge function
+      const response = await fetch('https://caeymijirdxdoisswgae.supabase.co/functions/v1/youtube-transcript', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ youtubeUrl: url }),
+      });
 
-The video discusses various topics and provides insights that users can now read in text format instead of watching the entire video.
+      const data = await response.json();
 
-This transcript service allows users to quickly scan through video content and find the information they need without having to watch the entire video.`;
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to process video');
+      }
 
-      onTranscriptReceived(mockTranscript, videoId);
+      onTranscriptReceived(data.transcript, data.videoId);
       
       toast({
         title: "Success!",
-        description: "Transcript generated successfully",
+        description: `Transcript generated successfully using ${data.source === 'captions' ? 'YouTube captions' : 'AI transcription'}`,
       });
     } catch (error) {
+      console.error('Transcription error:', error);
       toast({
         title: "Error",
-        description: "Failed to process video. Please try again.",
+        description: error instanceof Error ? error.message : "Failed to process video. Please try again.",
         variant: "destructive",
       });
     } finally {
