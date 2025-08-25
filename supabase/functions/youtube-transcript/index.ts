@@ -22,6 +22,7 @@ function extractVideoId(url: string): string | null {
 async function fetchYouTubeCaptions(videoId: string, youtubeApiKey?: string): Promise<string> {
   try {
     console.log(`Attempting to fetch captions for video: ${videoId}`);
+    console.log(`YouTube API key provided: ${youtubeApiKey ? 'YES' : 'NO'}`);
     
     // Approach 1: Try YouTube Data API for captions (most reliable)
     if (youtubeApiKey) {
@@ -1123,6 +1124,7 @@ serve(async (req) => {
     let audioAttemptDetails: string[] = [];
 
     // Get video info first
+    console.log(`YouTube API key for video info: ${userYoutubeApiKey ? 'PROVIDED' : 'NOT PROVIDED'}`);
     const videoInfo = await getVideoInfo(videoId, userYoutubeApiKey);
     processLog.push(`✓ Video info retrieved: ${videoInfo?.title || 'Unknown'}`);
     
