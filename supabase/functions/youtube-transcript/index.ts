@@ -766,14 +766,58 @@ async function transcribeAudioWithWhisper(audioUrl: string, openaiApiKey: string
     const audioBuffer = await audioResponse.arrayBuffer();
     console.log(`Downloaded audio buffer: ${audioBuffer.byteLength} bytes`);
     
-    // Detect audio format from URL and response headers
+    // Check if the downloaded data is actually audio
+    if (audioBuffer.byteLength < 1000) {
+      console.log(`Audio buffer too small (${audioBuffer.byteLength} bytes), likely not a valid audio file`);
+      throw new Error(`Downloaded data too small (${audioBuffer.byteLength} bytes) - likely not a valid audio file`);
+    }
+    
+    // Check the first few bytes to detect audio format
+    const firstBytes = new Uint8Array(audioBuffer.slice(0, 16));
+    const hexString = Array.from(firstBytes).map(b => b.toString(16).padStart(2, '0')).join('');
+    console.log(`Audio file header: ${hexString}`);
+    
+    // Detect audio format from file headers, URL, and response headers
     let mimeType = 'audio/mp4';
     let fileExtension = 'mp4';
     let fileName = 'audio.mp4';
     
-    // Check content-type header first
+    // Detect format from file headers (most reliable)
+    if (hexString.startsWith('494433') || hexString.startsWith('fffb') || hexString.startsWith('fff3')) {
+      // MP3 file signatures
+      mimeType = 'audio/mpeg';
+      fileExtension = 'mp3';
+      fileName = 'audio.mp3';
+      console.log('Detected MP3 format from file header');
+    } else if (hexString.startsWith('66747970') && (hexString.includes('4d3441') || hexString.includes('6d703432'))) {
+      // M4A/MP4 file signatures
+      mimeType = 'audio/mp4';
+      fileExtension = 'm4a';
+      fileName = 'audio.m4a';
+      console.log('Detected M4A format from file header');
+    } else if (hexString.startsWith('1a45dfa3')) {
+      // WebM file signature
+      mimeType = 'audio/webm';
+      fileExtension = 'webm';
+      fileName = 'audio.webm';
+      console.log('Detected WebM format from file header');
+    } else if (hexString.startsWith('52494646') && hexString.includes('57415645')) {
+      // WAV file signature
+      mimeType = 'audio/wav';
+      fileExtension = 'wav';
+      fileName = 'audio.wav';
+      console.log('Detected WAV format from file header');
+    } else if (hexString.startsWith('4f676753')) {
+      // OGG file signature
+      mimeType = 'audio/ogg';
+      fileExtension = 'ogg';
+      fileName = 'audio.ogg';
+      console.log('Detected OGG format from file header');
+    }
+    
+    // Check content-type header as fallback
     const contentType = audioResponse.headers.get('content-type');
-    if (contentType) {
+    if (contentType && fileExtension === 'mp4') {
       console.log(`Audio content-type: ${contentType}`);
       if (contentType.includes('audio/')) {
         mimeType = contentType;
