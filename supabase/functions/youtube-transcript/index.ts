@@ -281,30 +281,54 @@ async function getVideoInfo(videoId: string): Promise<any> {
 // Function to check if video has captions available
 async function checkCaptionsAvailability(videoId: string): Promise<boolean> {
   try {
+    console.log(`Checking caption availability for video: ${videoId}`);
+    
     const captionUrls = [
       `https://www.youtube.com/api/timedtext?v=${videoId}&lang=en&fmt=json3`,
-      `https://www.youtube.com/api/timedtext?v=${videoId}&lang=en-US&fmt=json3`
+      `https://www.youtube.com/api/timedtext?v=${videoId}&lang=en-US&fmt=json3`,
+      `https://www.youtube.com/api/timedtext?v=${videoId}&lang=en&fmt=srv3`,
+      `https://www.youtube.com/api/timedtext?v=${videoId}&lang=en&fmt=vtt`
     ];
 
     for (const url of captionUrls) {
       try {
+        console.log(`Checking caption URL: ${url}`);
         const response = await fetch(url, {
           headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'application/json, text/plain, */*',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'DNT': '1',
+            'Connection': 'keep-alive'
           }
         });
         
         if (response.ok) {
-          const data = await response.json();
-          if (data.events && data.events.length > 0) {
-            return true;
+          const contentType = response.headers.get('content-type');
+          console.log(`Caption check response: ${response.status} - ${contentType}`);
+          
+          if (contentType?.includes('application/json')) {
+            const data = await response.json();
+            if (data.events && data.events.length > 0) {
+              console.log(`✓ Captions found via JSON endpoint`);
+              return true;
+            }
+          } else if (contentType?.includes('text/')) {
+            const text = await response.text();
+            if (text.length > 100 && (text.includes('<text') || text.includes('WEBVTT'))) {
+              console.log(`✓ Captions found via text endpoint`);
+              return true;
+            }
           }
         }
       } catch (error) {
+        console.log(`Caption check failed for ${url}:`, error.message);
         continue;
       }
     }
     
+    console.log(`✗ No captions found in availability check`);
     return false;
   } catch (error) {
     console.log('Caption availability check failed:', error.message);
@@ -586,20 +610,11 @@ serve(async (req) => {
     const videoInfo = await getVideoInfo(videoId);
     processLog.push(`✓ Video info retrieved: ${videoInfo?.title || 'Unknown'}`);
     
-    // Check if captions are available first
-    processLog.push('🔍 Checking if video has captions available...');
-    const hasCaptions = await checkCaptionsAvailability(videoId);
+    // Always try caption extraction first (skip availability check)
+    processLog.push('🔍 Attempting to fetch YouTube captions...');
     
-    if (hasCaptions) {
-      processLog.push('✓ Captions detected as available');
-    } else {
-      processLog.push('✗ No captions detected - will need audio transcription');
-    }
-    
-    // Try to get YouTube captions first
     try {
       console.log('Attempting to fetch YouTube captions...');
-      processLog.push('🔍 Attempting to fetch YouTube captions...');
       
       const transcript = await fetchYouTubeCaptions(videoId);
       
