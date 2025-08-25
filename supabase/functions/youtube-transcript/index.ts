@@ -8,6 +8,8 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Max-Age': '86400',
 };
 
 // Function to extract video ID from YouTube URL
@@ -340,7 +342,7 @@ async function checkCaptionsAvailability(videoId: string): Promise<boolean> {
 
 // Function to get audio stream using third-party service
 async function getAudioStreamUrl(videoId: string): Promise<string | null> {
-  const maxRetries = 2;
+  const maxRetries = 3; // Increased retries
   const retryDelay = 2000; // 2 seconds between retries
   
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -351,11 +353,21 @@ async function getAudioStreamUrl(videoId: string): Promise<string | null> {
         await new Promise(resolve => setTimeout(resolve, retryDelay));
       }
 
-      // Try using a public YouTube info API service
+      // Enhanced list of third-party services
       const apiUrls = [
+        // Primary services
         `https://api.vevioz.com/@api/json/mp3/${videoId}`,
+        `https://api.vevioz.com/@api/json/mp4/${videoId}`,
         `https://loader.to/api/button/?url=https://www.youtube.com/watch?v=${videoId}&f=mp3`,
-        `https://api.vevioz.com/@api/json/mp4/${videoId}`
+        
+        // Additional services
+        `https://api.vevioz.com/@api/json/mp3/${videoId}?quality=128`,
+        `https://api.vevioz.com/@api/json/mp3/${videoId}?quality=320`,
+        `https://loader.to/api/button/?url=https://www.youtube.com/watch?v=${videoId}&f=mp4`,
+        
+        // Alternative services
+        `https://api.vevioz.com/@api/json/mp3/${videoId}&format=mp3`,
+        `https://api.vevioz.com/@api/json/mp4/${videoId}&format=mp4`,
       ];
 
       for (const apiUrl of apiUrls) {
@@ -369,12 +381,31 @@ async function getAudioStreamUrl(videoId: string): Promise<string | null> {
               'Accept-Language': 'en-US,en;q=0.9',
               'Accept-Encoding': 'gzip, deflate, br',
               'DNT': '1',
-              'Connection': 'keep-alive'
+              'Connection': 'keep-alive',
+              'Cache-Control': 'no-cache',
+              'Pragma': 'no-cache'
             }
           });
 
           if (response.ok) {
-            const data = await response.json();
+            const contentType = response.headers.get('content-type');
+            console.log(`API response content-type: ${contentType}`);
+            
+            let data;
+            if (contentType?.includes('application/json')) {
+              data = await response.json();
+            } else {
+              // Try to parse as JSON even if content-type is not json
+              const text = await response.text();
+              try {
+                data = JSON.parse(text);
+              } catch (parseError) {
+                console.log(`Failed to parse response as JSON: ${parseError.message}`);
+                continue;
+              }
+            }
+            
+            console.log(`API response data:`, JSON.stringify(data).substring(0, 300));
             
             // Check for different response formats
             if (data.url) {
@@ -391,6 +422,27 @@ async function getAudioStreamUrl(videoId: string): Promise<string | null> {
               console.log(`Found link from API: ${data.link.substring(0, 100)}...`);
               return data.link;
             }
+            
+            if (data.downloadUrl) {
+              console.log(`Found downloadUrl from API: ${data.downloadUrl.substring(0, 100)}...`);
+              return data.downloadUrl;
+            }
+            
+            if (data.audioUrl) {
+              console.log(`Found audioUrl from API: ${data.audioUrl.substring(0, 100)}...`);
+              return data.audioUrl;
+            }
+            
+            // Check for nested objects
+            if (data.data && data.data.url) {
+              console.log(`Found nested audio URL from API: ${data.data.url.substring(0, 100)}...`);
+              return data.data.url;
+            }
+            
+            if (data.result && data.result.url) {
+              console.log(`Found result audio URL from API: ${data.result.url.substring(0, 100)}...`);
+              return data.result.url;
+            }
           }
         } catch (apiError) {
           console.log(`API ${apiUrl} failed:`, apiError.message);
@@ -401,42 +453,108 @@ async function getAudioStreamUrl(videoId: string): Promise<string | null> {
       // If third-party APIs fail, try a different approach using a proxy service
       console.log('Third-party APIs failed, trying proxy approach...');
       
-      const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${videoId}`)}`;
+      // Try multiple proxy services
+      const proxyServices = [
+        `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${videoId}`)}`,
+        `https://cors-anywhere.herokuapp.com/https://www.youtube.com/watch?v=${videoId}`,
+        `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(`https://www.youtube.com/watch?v=${videoId}`)}`
+      ];
       
-      const proxyResponse = await fetch(proxyUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-        }
-      });
+      for (const proxyUrl of proxyServices) {
+        try {
+          console.log(`Trying proxy service: ${proxyUrl}`);
+          
+          const proxyResponse = await fetch(proxyUrl, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+              'Accept-Language': 'en-US,en;q=0.9',
+              'Accept-Encoding': 'gzip, deflate, br',
+              'DNT': '1',
+              'Connection': 'keep-alive',
+              'Upgrade-Insecure-Requests': '1'
+            }
+          });
 
-      if (proxyResponse.ok) {
-        const html = await proxyResponse.text();
-        
-        // Look for audio URLs in the proxied HTML
-        const audioPatterns = [
-          /"audioUrl":"([^"]+)"/,
-          /"url":"([^"]*audio[^"]*)"/,
-          /audioUrl=([^&\s]+)/,
-          /"adaptiveFormats":\[([^\]]+)\]/,
-          /"formats":\[([^\]]+)\]/
-        ];
+          if (proxyResponse.ok) {
+            const html = await proxyResponse.text();
+            console.log(`Proxy response length: ${html.length} characters`);
+            
+            // Look for audio URLs in the proxied HTML with more patterns
+            const audioPatterns = [
+              /"audioUrl":"([^"]+)"/,
+              /"url":"([^"]*audio[^"]*)"/,
+              /audioUrl=([^&\s]+)/,
+              /"adaptiveFormats":\[([^\]]+)\]/,
+              /"formats":\[([^\]]+)\]/,
+              /"url":"([^"]*\.mp3[^"]*)"/,
+              /"url":"([^"]*\.m4a[^"]*)"/,
+              /"url":"([^"]*\.webm[^"]*)"/,
+              /href="([^"]*\.mp3[^"]*)"/,
+              /href="([^"]*\.m4a[^"]*)"/,
+              /src="([^"]*\.mp3[^"]*)"/,
+              /src="([^"]*\.m4a[^"]*)"/,
+              /"downloadUrl":"([^"]+)"/,
+              /"download_url":"([^"]+)"/,
+              /download_url=([^&\s]+)/,
+              /"link":"([^"]*\.mp3[^"]*)"/,
+              /"link":"([^"]*\.m4a[^"]*)"/
+            ];
 
-        for (const pattern of audioPatterns) {
-          const match = html.match(pattern);
-          if (match) {
-            console.log(`Found pattern match: ${pattern.source}`);
-            try {
-              const urlMatch = match[1].match(/"url":"([^"]+)"/);
-              if (urlMatch && urlMatch[1].includes('audio')) {
-                const audioUrl = urlMatch[1].replace(/\\u002F/g, '/');
-                console.log(`Extracted audio URL from proxy: ${audioUrl.substring(0, 100)}...`);
-                return audioUrl;
+            for (const pattern of audioPatterns) {
+              const match = html.match(pattern);
+              if (match) {
+                console.log(`Found pattern match: ${pattern.source}`);
+                try {
+                  let audioUrl = match[1];
+                  
+                  // Clean up the URL
+                  audioUrl = audioUrl.replace(/\\u002F/g, '/').replace(/\\"/g, '"');
+                  
+                  // Validate it's a proper URL
+                  if (audioUrl.startsWith('http') && (audioUrl.includes('audio') || audioUrl.includes('.mp3') || audioUrl.includes('.m4a') || audioUrl.includes('.webm'))) {
+                    console.log(`Extracted audio URL from proxy: ${audioUrl.substring(0, 100)}...`);
+                    return audioUrl;
+                  }
+                } catch (patternError) {
+                  console.log(`Pattern extraction failed: ${patternError.message}`);
+                }
               }
-            } catch (patternError) {
-              console.log(`Pattern extraction failed: ${patternError.message}`);
             }
           }
+        } catch (proxyError) {
+          console.log(`Proxy service failed:`, proxyError.message);
+          continue;
         }
+      }
+
+      // Final fallback: Try direct YouTube player API
+      console.log('Trying direct YouTube player API as final fallback...');
+      try {
+        const playerUrl = `https://www.youtube.com/embed/${videoId}`;
+        const playerResponse = await fetch(playerUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'DNT': '1',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1'
+          }
+        });
+        
+        if (playerResponse.ok) {
+          const playerHtml = await playerResponse.text();
+          const audioMatch = playerHtml.match(/"audioUrl":"([^"]+)"/);
+          if (audioMatch) {
+            const audioUrl = audioMatch[1].replace(/\\u002F/g, '/');
+            console.log(`Found audio URL from player API: ${audioUrl.substring(0, 100)}...`);
+            return audioUrl;
+          }
+        }
+      } catch (playerError) {
+        console.log(`Player API fallback failed:`, playerError.message);
       }
 
       throw new Error('All third-party services failed to provide audio stream');
@@ -583,8 +701,14 @@ async function transcribeAudioWithWhisper(audioUrl: string, openaiApiKey: string
 serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+    return new Response(null, { 
+      headers: corsHeaders,
+      status: 200
+    });
   }
+
+  // Add CORS headers to all responses
+  const responseHeaders = { ...corsHeaders };
 
   // Log deployment version for debugging
   console.log('YouTube Transcript Function - Version: 2025-01-25-21-45 - Third-party service approach');
@@ -635,7 +759,7 @@ serve(async (req) => {
             processLog: processLog
           }),
           {
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            headers: { ...responseHeaders, 'Content-Type': 'application/json' },
           }
         );
       }
@@ -675,7 +799,7 @@ Note: Due to YouTube's bot detection measures, videos with existing captions are
           captionAttemptDetails: captionAttemptDetails
         }),
         {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          headers: { ...responseHeaders, 'Content-Type': 'application/json' },
         }
       );
     }
