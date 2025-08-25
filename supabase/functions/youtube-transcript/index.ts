@@ -808,6 +808,17 @@ async function transcribeAudioWithWhisper(audioUrl: string, openaiApiKey: string
     
     console.log(`Detected audio format: ${mimeType} (${fileExtension})`);
     
+    // Ensure we have a valid format for Whisper
+    const validFormats = ['mp3', 'm4a', 'mp4', 'webm', 'wav', 'ogg', 'flac', 'mpeg', 'mpga', 'oga'];
+    if (!validFormats.includes(fileExtension)) {
+      console.log(`Invalid format ${fileExtension}, defaulting to mp3`);
+      mimeType = 'audio/mpeg';
+      fileExtension = 'mp3';
+      fileName = 'audio.mp3';
+    }
+    
+    console.log(`Final audio format for Whisper: ${mimeType} (${fileExtension})`);
+    
     // Prepare form data for OpenAI Whisper API
     const formData = new FormData();
     const audioBlob = new Blob([audioBuffer], { type: mimeType });
