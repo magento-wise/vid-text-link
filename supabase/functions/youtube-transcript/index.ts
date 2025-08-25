@@ -1,3 +1,4 @@
+
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
@@ -12,87 +13,72 @@ function extractVideoId(url: string): string | null {
   return match ? match[1] : null;
 }
 
-// Function to download audio from YouTube using ytdl-core equivalent
-async function downloadYouTubeAudio(videoId: string): Promise<ArrayBuffer> {
-  // For security and reliability, we'll use youtube-dl-exec or similar API
-  // This is a simplified example - in production you'd use a proper audio extraction service
-  
+// Function to fetch YouTube captions using yt-dlp API approach
+async function fetchYouTubeCaptions(videoId: string): Promise<string> {
   try {
-    // Using a free YouTube audio extraction API
-    const response = await fetch(`https://www.youtube.com/watch?v=${videoId}`);
-    
-    if (!response.ok) {
-      throw new Error(`Failed to access video: ${response.statusText}`);
-    }
+    // Try multiple caption endpoints
+    const captionUrls = [
+      `https://www.youtube.com/api/timedtext?v=${videoId}&lang=en&fmt=json3`,
+      `https://www.youtube.com/api/timedtext?v=${videoId}&lang=en-US&fmt=json3`,
+      `https://www.youtube.com/api/timedtext?v=${videoId}&lang=en&fmt=srv3`,
+      `https://video.google.com/timedtext?lang=en&v=${videoId}&fmt=json3`
+    ];
 
-    // In a real implementation, you would:
-    // 1. Extract audio stream URLs from video page
-    // 2. Download the audio stream
-    // 3. Convert to appropriate format if needed
+    for (const url of captionUrls) {
+      try {
+        console.log(`Trying caption URL: ${url}`);
+        const response = await fetch(url);
+        
+        if (response.ok) {
+          const data = await response.json();
+          console.log(`Caption response:`, JSON.stringify(data).substring(0, 200));
+          
+          if (data.events && data.events.length > 0) {
+            // Extract text from transcript events
+            const segments = data.events
+              .filter((event: any) => event.segs && event.segs.length > 0)
+              .map((event: any) => {
+                return event.segs
+                  .map((seg: any) => seg.utf8 || '')
+                  .join('')
+                  .trim();
+              })
+              .filter((text: string) => text && text.length > 0);
+
+            if (segments.length > 0) {
+              return segments.join(' ').replace(/\s+/g, ' ').trim();
+            }
+          }
+        }
+      } catch (error) {
+        console.log(`Caption URL ${url} failed:`, error.message);
+        continue;
+      }
+    }
     
-    // For now, we'll simulate this by creating a mock audio buffer
-    // In production, replace this with actual audio extraction
-    throw new Error("Audio extraction not implemented - please provide audio file directly");
-    
+    throw new Error('No captions found');
   } catch (error) {
-    throw new Error(`Failed to extract audio: ${error.message}`);
-  }
-}
-
-// Function to transcribe audio using OpenAI Whisper
-async function transcribeAudio(audioBuffer: ArrayBuffer, apiKey: string): Promise<string> {
-  // Create FormData for the OpenAI API
-  const formData = new FormData();
-  const audioBlob = new Blob([audioBuffer], { type: 'audio/mpeg' });
-  formData.append('file', audioBlob, 'audio.mp3');
-  formData.append('model', 'whisper-1');
-
-  const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-    },
-    body: formData,
-  });
-
-  if (!response.ok) {
-    const errorData = await response.text();
-    console.error('OpenAI API error:', errorData);
-    throw new Error(`OpenAI API error: ${response.statusText}`);
-  }
-
-  const result = await response.json();
-  return result.text;
-}
-
-// Function to try fetching YouTube captions first
-async function fetchYouTubeTranscript(videoId: string): Promise<string> {
-  try {
-    // Try to fetch transcript from YouTube's transcript API
-    const response = await fetch(`https://www.youtube.com/api/timedtext?v=${videoId}&lang=en&fmt=json3`);
-    
-    if (!response.ok) {
-      throw new Error('No transcript available');
-    }
-
-    const data = await response.json();
-    
-    if (!data.events) {
-      throw new Error('No transcript events found');
-    }
-
-    // Extract text from transcript events
-    const segments = data.events
-      .filter((event: any) => event.segs)
-      .map((event: any) => {
-        const text = event.segs.map((seg: any) => seg.utf8).join('').trim();
-        return text;
-      })
-      .filter((text: string) => text);
-
-    return segments.join(' ');
-  } catch (error) {
+    console.error('Caption fetching error:', error);
     throw new Error(`Caption extraction failed: ${error.message}`);
+  }
+}
+
+// Function to get video info and check if captions are available
+async function getVideoInfo(videoId: string): Promise<any> {
+  try {
+    // Try to get video information to see if captions are available
+    const response = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`);
+    
+    if (response.ok) {
+      const data = await response.json();
+      console.log(`Video info:`, data);
+      return data;
+    }
+    
+    throw new Error('Could not fetch video info');
+  } catch (error) {
+    console.log(`Video info fetch failed:`, error.message);
+    return null;
   }
 }
 
@@ -117,58 +103,75 @@ serve(async (req) => {
 
     console.log(`Processing video: ${videoId}`);
 
-    // First try to get YouTube captions
+    // Get video info first
+    const videoInfo = await getVideoInfo(videoId);
+    
+    // Try to get YouTube captions first
     try {
-      const transcript = await fetchYouTubeTranscript(videoId);
-      console.log('Successfully fetched YouTube captions');
+      console.log('Attempting to fetch YouTube captions...');
+      const transcript = await fetchYouTubeCaptions(videoId);
       
-      return new Response(
-        JSON.stringify({
-          transcript: transcript,
-          videoId: videoId,
-          source: 'captions',
-          success: true
-        }),
-        {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        }
-      );
-    } catch (captionError) {
-      console.log('No captions available, would need audio transcription');
-      
-      // Check if OpenAI API key is provided
-      if (!openaiApiKey) {
-        throw new Error('No captions available for this video. OpenAI API key is required for audio transcription.');
+      if (transcript && transcript.length > 10) {
+        console.log(`Successfully fetched captions (${transcript.length} characters)`);
+        
+        return new Response(
+          JSON.stringify({
+            transcript: transcript,
+            videoId: videoId,
+            source: 'captions',
+            success: true,
+            videoTitle: videoInfo?.title || 'Unknown'
+          }),
+          {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          }
+        );
       }
-
-      // For demonstration purposes, we'll return a mock transcript
-      // In production, you would implement actual audio extraction and transcription
-      const mockTranscript = `[Audio Transcription - Mock]
-
-This video does not have automatic captions available, so audio transcription would be required.
-
-To implement real audio transcription:
-1. Extract audio from YouTube video using youtube-dl or similar tool
-2. Send audio file to OpenAI Whisper API
-3. Return the transcribed text
-
-The OpenAI API key you provided would be used to call the Whisper API for actual transcription.
-
-Note: This is currently a demonstration. Full audio extraction and transcription requires additional infrastructure for handling large audio files and processing time.`;
-
-      return new Response(
-        JSON.stringify({
-          transcript: mockTranscript,
-          videoId: videoId,
-          source: 'whisper-mock',
-          success: true,
-          note: 'This is a mock response. Real audio transcription requires additional setup.'
-        }),
-        {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        }
-      );
+    } catch (captionError) {
+      console.log('No captions available:', captionError.message);
     }
+
+    // If no captions and no OpenAI key, return error
+    if (!openaiApiKey) {
+      throw new Error('No captions available for this video. Please provide an OpenAI API key for audio transcription.');
+    }
+
+    // For now, return an informative message about audio transcription
+    // In a production environment, you would implement actual audio extraction here
+    console.log('Would attempt audio transcription with OpenAI API');
+    
+    return new Response(
+      JSON.stringify({
+        transcript: `[Audio Transcription Required]
+
+This video (${videoId}) does not have automatic captions available.
+
+To get the transcript, audio transcription would be needed using OpenAI's Whisper API. However, this requires:
+
+1. Extracting audio from the YouTube video
+2. Converting it to a compatible format
+3. Sending it to OpenAI's Whisper API
+4. Processing the transcription response
+
+Current limitations:
+- YouTube audio extraction requires additional infrastructure
+- Large audio files need special handling
+- Processing can take several minutes for long videos
+
+Your OpenAI API key was provided and would be used for the Whisper API call in a full implementation.
+
+Try finding a video with automatic captions, or consider using a video that has closed captions enabled.`,
+        videoId: videoId,
+        source: 'audio-transcription-needed',
+        success: true,
+        videoTitle: videoInfo?.title || 'Unknown',
+        note: 'Audio transcription infrastructure needed for videos without captions'
+      }),
+      {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      }
+    );
+
   } catch (error) {
     console.error('Error in youtube-transcript function:', error);
     return new Response(
@@ -177,7 +180,7 @@ Note: This is currently a demonstration. Full audio extraction and transcription
         success: false
       }),
       {
-        status: 500,
+        status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       }
     );
