@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { TranscriptInput } from "@/components/TranscriptInput";
 import { TranscriptDisplay } from "@/components/TranscriptDisplay";
+import { SpeechToText } from "@/components/SpeechToText";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import heroImage from "@/assets/hero-bg.jpg";
 
 const Index = () => {
@@ -31,27 +33,40 @@ const Index = () => {
         <div className="relative z-10 container mx-auto px-4 py-12">
           <div className="text-center mb-12">
             <h1 className="text-5xl md:text-7xl font-bold mb-6 bg-gradient-hero bg-clip-text text-transparent">
-              YouTube Transcripts
+              AI Transcription Hub
             </h1>
             <p className="text-xl md:text-2xl text-muted-foreground max-w-3xl mx-auto mb-8">
-              Transform any YouTube video into readable text instantly. Perfect for research, note-taking, and accessibility.
+              Convert YouTube videos to text or record live speech. Powered by OpenAI's advanced Whisper models.
             </p>
           </div>
 
-          {transcript && videoId ? (
-            <TranscriptDisplay 
-              transcript={transcript}
-              videoId={videoId}
-              onReset={handleReset}
-              processLog={responseData?.processLog}
-              captionAttemptDetails={responseData?.captionAttemptDetails}
-              audioAttemptDetails={responseData?.audioAttemptDetails}
-              source={responseData?.source}
-              error={responseData?.error}
-            />
-          ) : (
-            <TranscriptInput onTranscriptReceived={handleTranscriptReceived} />
-          )}
+          <Tabs defaultValue="youtube" className="w-full">
+            <TabsList className="grid w-full grid-cols-2 mb-8">
+              <TabsTrigger value="youtube">YouTube Transcripts</TabsTrigger>
+              <TabsTrigger value="speech">Speech to Text</TabsTrigger>
+            </TabsList>
+            
+            <TabsContent value="youtube">
+              {transcript && videoId ? (
+                <TranscriptDisplay 
+                  transcript={transcript}
+                  videoId={videoId}
+                  onReset={handleReset}
+                  processLog={responseData?.processLog}
+                  captionAttemptDetails={responseData?.captionAttemptDetails}
+                  audioAttemptDetails={responseData?.audioAttemptDetails}
+                  source={responseData?.source}
+                  error={responseData?.error}
+                />
+              ) : (
+                <TranscriptInput onTranscriptReceived={handleTranscriptReceived} />
+              )}
+            </TabsContent>
+            
+            <TabsContent value="speech">
+              <SpeechToText />
+            </TabsContent>
+          </Tabs>
         </div>
       </div>
       
@@ -65,7 +80,7 @@ const Index = () => {
                   <span className="text-2xl">⚡</span>
                 </div>
                 <h3 className="text-xl font-semibold mb-2">Lightning Fast</h3>
-                <p className="text-muted-foreground">Get transcripts in minutes, not hours</p>
+                <p className="text-muted-foreground">Get transcripts in seconds with advanced AI models</p>
               </div>
               <div className="text-center">
                 <div className="w-16 h-16 bg-gradient-primary rounded-full flex items-center justify-center mx-auto mb-4">
@@ -76,10 +91,10 @@ const Index = () => {
               </div>
               <div className="text-center">
                 <div className="w-16 h-16 bg-gradient-primary rounded-full flex items-center justify-center mx-auto mb-4">
-                  <span className="text-2xl">💼</span>
+                  <span className="text-2xl">🎤</span>
                 </div>
-                <h3 className="text-xl font-semibold mb-2">Export Ready</h3>
-                <p className="text-muted-foreground">Copy or download transcripts instantly</p>
+                <h3 className="text-xl font-semibold mb-2">Live Recording</h3>
+                <p className="text-muted-foreground">Record and transcribe speech in real-time</p>
               </div>
             </div>
           </div>
