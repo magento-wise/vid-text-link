@@ -82,40 +82,65 @@ async function getVideoInfo(videoId: string): Promise<any> {
   }
 }
 
-// Function to extract audio URL from YouTube video
+// Function to get audio stream using yt-dlp format approach
 async function getAudioStreamUrl(videoId: string): Promise<string | null> {
   try {
-    // Get video page HTML to extract stream information
-    const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
-    const response = await fetch(videoUrl);
-    const html = await response.text();
+    // Use YouTube's player API to get stream information
+    const playerApiUrl = `https://www.youtube.com/youtubei/v1/player?key=AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8`;
     
-    // Look for player response data in the HTML
-    const playerResponseMatch = html.match(/var ytInitialPlayerResponse = ({.+?});/);
-    if (!playerResponseMatch) {
-      throw new Error('Could not find player response data');
+    const requestBody = {
+      context: {
+        client: {
+          clientName: "WEB",
+          clientVersion: "2.20210721.00.00"
+        }
+      },
+      videoId: videoId
+    };
+
+    console.log(`Fetching player data for video: ${videoId}`);
+    
+    const response = await fetch(playerApiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      },
+      body: JSON.stringify(requestBody)
+    });
+
+    if (!response.ok) {
+      throw new Error(`Player API request failed: ${response.status}`);
     }
+
+    const playerData = await response.json();
+    console.log(`Player response status:`, playerData.playabilityStatus?.status);
     
-    const playerResponse = JSON.parse(playerResponseMatch[1]);
-    const streamingData = playerResponse?.streamingData;
-    
+    if (playerData.playabilityStatus?.status !== 'OK') {
+      throw new Error(`Video not playable: ${playerData.playabilityStatus?.reason || 'Unknown reason'}`);
+    }
+
+    const streamingData = playerData.streamingData;
     if (!streamingData) {
-      throw new Error('No streaming data available');
+      throw new Error('No streaming data available in player response');
     }
-    
-    // Look for audio-only streams
-    const audioStreams = streamingData.adaptiveFormats?.filter((format: any) => 
-      format.mimeType?.includes('audio') && 
-      (format.mimeType.includes('mp4') || format.mimeType.includes('webm'))
+
+    // Look for audio formats
+    const audioFormats = streamingData.adaptiveFormats?.filter((format: any) => 
+      format.mimeType?.startsWith('audio/') && format.url
     );
-    
-    if (audioStreams && audioStreams.length > 0) {
-      // Sort by quality and return the best audio stream
-      audioStreams.sort((a: any, b: any) => (b.bitrate || 0) - (a.bitrate || 0));
-      return audioStreams[0].url;
+
+    if (!audioFormats || audioFormats.length === 0) {
+      throw new Error('No audio streams found');
     }
+
+    // Sort by bitrate (prefer higher quality) and return the best one
+    audioFormats.sort((a: any, b: any) => (b.bitrate || 0) - (a.bitrate || 0));
+    const bestAudio = audioFormats[0];
     
-    throw new Error('No suitable audio stream found');
+    console.log(`Selected audio format: ${bestAudio.mimeType}, bitrate: ${bestAudio.bitrate}`);
+    return bestAudio.url;
+
   } catch (error) {
     console.error('Audio stream extraction error:', error);
     return null;
