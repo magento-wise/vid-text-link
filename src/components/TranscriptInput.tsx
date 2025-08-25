@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2, Youtube, Sparkles } from "lucide-react";
+import { Loader2, Youtube, Sparkles, Save, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 interface TranscriptInputProps {
@@ -12,8 +12,73 @@ interface TranscriptInputProps {
 export function TranscriptInput({ onTranscriptReceived }: TranscriptInputProps) {
   const [url, setUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const [youtubeApiKey, setYoutubeApiKey] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [isApiKeySaved, setIsApiKeySaved] = useState(false);
+  const [isYoutubeApiKeySaved, setIsYoutubeApiKeySaved] = useState(false);
   const { toast } = useToast();
+
+  // Load saved API keys from localStorage on component mount
+  useEffect(() => {
+    const savedOpenAIKey = localStorage.getItem('openai_api_key');
+    const savedYouTubeKey = localStorage.getItem('youtube_api_key');
+    
+    if (savedOpenAIKey) {
+      setApiKey(savedOpenAIKey);
+      setIsApiKeySaved(true);
+    }
+    
+    if (savedYouTubeKey) {
+      setYoutubeApiKey(savedYouTubeKey);
+      setIsYoutubeApiKeySaved(true);
+    }
+  }, []);
+
+  // Save API key to localStorage
+  const saveApiKey = () => {
+    if (apiKey.trim()) {
+      localStorage.setItem('openai_api_key', apiKey);
+      setIsApiKeySaved(true);
+      toast({
+        title: "Saved!",
+        description: "OpenAI API key saved to browser storage",
+      });
+    }
+  };
+
+  // Remove API key from localStorage
+  const removeApiKey = () => {
+    localStorage.removeItem('openai_api_key');
+    setApiKey("");
+    setIsApiKeySaved(false);
+    toast({
+      title: "Removed!",
+      description: "OpenAI API key removed from browser storage",
+    });
+  };
+
+  // Save YouTube API key to localStorage
+  const saveYoutubeApiKey = () => {
+    if (youtubeApiKey.trim()) {
+      localStorage.setItem('youtube_api_key', youtubeApiKey);
+      setIsYoutubeApiKeySaved(true);
+      toast({
+        title: "Saved!",
+        description: "YouTube API key saved to browser storage",
+      });
+    }
+  };
+
+  // Remove YouTube API key from localStorage
+  const removeYoutubeApiKey = () => {
+    localStorage.removeItem('youtube_api_key');
+    setYoutubeApiKey("");
+    setIsYoutubeApiKeySaved(false);
+    toast({
+      title: "Removed!",
+      description: "YouTube API key removed from browser storage",
+    });
+  };
 
   const validateYouTubeUrl = (url: string): boolean => {
     const youtubeRegex = /^(https?:\/\/)?(www\.)?(youtube\.com\/watch\?v=|youtu\.be\/)[\w-]+/;
@@ -79,7 +144,11 @@ export function TranscriptInput({ onTranscriptReceived }: TranscriptInputProps) 
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ youtubeUrl: url, openaiApiKey: apiKey }),
+        body: JSON.stringify({ 
+          youtubeUrl: url, 
+          openaiApiKey: apiKey,
+          youtubeApiKey: youtubeApiKey || undefined 
+        }),
       });
 
       const data = await response.json();
@@ -126,17 +195,91 @@ export function TranscriptInput({ onTranscriptReceived }: TranscriptInputProps) 
             <label htmlFor="openai-key" className="text-sm font-medium">
               OpenAI API Key
             </label>
-            <Input
-              id="openai-key"
-              type="password"
-              placeholder="sk-..."
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              disabled={isLoading}
-              className="h-12 text-lg"
-            />
+            <div className="flex gap-2">
+              <Input
+                id="openai-key"
+                type="password"
+                placeholder="sk-..."
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                disabled={isLoading}
+                className="h-12 text-lg flex-1"
+              />
+              {isApiKeySaved ? (
+                <Button
+                  type="button"
+                  onClick={removeApiKey}
+                  variant="outline"
+                  size="lg"
+                  className="h-12 px-3"
+                  title="Remove saved API key"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  onClick={saveApiKey}
+                  variant="outline"
+                  size="lg"
+                  className="h-12 px-3"
+                  title="Save API key to browser"
+                >
+                  <Save className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
             <p className="text-xs text-muted-foreground">
-              Your API key is only used for this request and is not stored anywhere.
+              {isApiKeySaved 
+                ? "✅ API key saved in browser storage" 
+                : "Your API key is only used for this request and is not stored anywhere."
+              }
+            </p>
+          </div>
+          
+          <div className="space-y-2">
+            <label htmlFor="youtube-api-key" className="text-sm font-medium">
+              YouTube API Key (Optional)
+            </label>
+            <div className="flex gap-2">
+              <Input
+                id="youtube-api-key"
+                type="password"
+                placeholder="AIzaSy..."
+                value={youtubeApiKey}
+                onChange={(e) => setYoutubeApiKey(e.target.value)}
+                disabled={isLoading}
+                className="h-12 text-lg flex-1"
+              />
+              {isYoutubeApiKeySaved ? (
+                <Button
+                  type="button"
+                  onClick={removeYoutubeApiKey}
+                  variant="outline"
+                  size="lg"
+                  className="h-12 px-3"
+                  title="Remove saved YouTube API key"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  onClick={saveYoutubeApiKey}
+                  variant="outline"
+                  size="lg"
+                  className="h-12 px-3"
+                  title="Save YouTube API key to browser"
+                >
+                  <Save className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {isYoutubeApiKeySaved 
+                ? "✅ YouTube API key saved in browser storage" 
+                : "Optional: Add your own YouTube API key for better rate limits. If not provided, a public key will be used."
+              }
             </p>
           </div>
           <div className="space-y-2">

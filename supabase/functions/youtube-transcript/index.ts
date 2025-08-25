@@ -137,8 +137,11 @@ async function getAudioStreamUrl(videoId: string): Promise<string | null> {
       if (attempt > 1) {
         await new Promise(resolve => setTimeout(resolve, retryDelay));
       }
-    // Use YouTube's player API to get stream information
-    const playerApiUrl = `https://www.youtube.com/youtubei/v1/player?key=AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8`;
+      
+      // Try to get YouTube API key from user input, then environment, then fallback to public key
+      // Note: The public key may have rate limits. For production use, set YOUTUBE_API_KEY environment variable
+      const youtubeApiKey = userYoutubeApiKey || Deno.env.get('YOUTUBE_API_KEY') || 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8';
+      const playerApiUrl = `https://www.youtube.com/youtubei/v1/player?key=${youtubeApiKey}`;
     
     const requestBody = {
       context: {
@@ -246,10 +249,10 @@ async function getAudioStreamUrl(videoId: string): Promise<string | null> {
   return null;
 }
 
-// Alternative function to try different approaches for video data
+// Alternative function to try different approaches for video data (no API key required)
 async function getVideoDataAlternative(videoId: string): Promise<string | null> {
   try {
-    // Try using yt-dlp approach with different endpoints
+    // Try using HTML parsing approach with different endpoints (no API key needed)
     const endpoints = [
       `https://www.youtube.com/watch?v=${videoId}`,
       `https://www.youtube.com/embed/${videoId}`,
@@ -258,7 +261,7 @@ async function getVideoDataAlternative(videoId: string): Promise<string | null> 
 
     for (const endpoint of endpoints) {
       try {
-        console.log(`Trying alternative endpoint: ${endpoint}`);
+        console.log(`Trying alternative endpoint (no API key): ${endpoint}`);
         
         const response = await fetch(endpoint, {
           headers: {
@@ -268,7 +271,11 @@ async function getVideoDataAlternative(videoId: string): Promise<string | null> 
             'Accept-Encoding': 'gzip, deflate, br',
             'DNT': '1',
             'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1'
+            'Upgrade-Insecure-Requests': '1',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Sec-Fetch-User': '?1'
           }
         });
 
@@ -287,9 +294,17 @@ async function getVideoDataAlternative(videoId: string): Promise<string | null> 
               
               if (audioFormats.length > 0) {
                 audioFormats.sort((a: any, b: any) => (b.bitrate || 0) - (a.bitrate || 0));
+                console.log(`Alternative method found audio format: ${audioFormats[0].mimeType}`);
                 return audioFormats[0].url;
               }
             }
+          }
+          
+          // Also try looking for other patterns in the HTML
+          const audioUrlMatch = html.match(/"audioUrl":"([^"]+)"/);
+          if (audioUrlMatch) {
+            console.log('Found audio URL in HTML pattern');
+            return audioUrlMatch[1].replace(/\\u002F/g, '/');
           }
         }
       } catch (endpointError) {
@@ -360,7 +375,7 @@ serve(async (req) => {
   }
 
   try {
-    const { youtubeUrl, openaiApiKey } = await req.json();
+    const { youtubeUrl, openaiApiKey, youtubeApiKey: userYoutubeApiKey } = await req.json();
     
     if (!youtubeUrl) {
       throw new Error('YouTube URL is required');
@@ -463,14 +478,14 @@ Note: Due to YouTube's bot detection measures, videos with existing captions are
       console.log('Attempting audio transcription with OpenAI Whisper...');
       processLog.push('🎵 Attempting audio transcription with OpenAI Whisper...');
       
-      // Get audio stream URL - try primary method first
-      processLog.push('🔗 Extracting audio stream URL (primary method)...');
+      // Get audio stream URL - try primary method first (uses YouTube API key if available)
+      processLog.push('🔗 Extracting audio stream URL (primary method with API key)...');
       let audioUrl = await getAudioStreamUrl(videoId);
       
-      // If primary method fails, try alternative approach
+      // If primary method fails, try alternative approach (no API key required)
       if (!audioUrl) {
-        processLog.push('🔄 Primary method failed, trying alternative approach...');
-        audioAttemptDetails.push('Primary method failed, trying alternative approach');
+        processLog.push('🔄 Primary method failed, trying alternative approach (no API key)...');
+        audioAttemptDetails.push('Primary method failed, trying alternative approach (no API key)');
         audioUrl = await getVideoDataAlternative(videoId);
       }
       
