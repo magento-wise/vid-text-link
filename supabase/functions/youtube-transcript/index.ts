@@ -82,6 +82,94 @@ async function getVideoInfo(videoId: string): Promise<any> {
   }
 }
 
+// Function to extract audio URL from YouTube video
+async function getAudioStreamUrl(videoId: string): Promise<string | null> {
+  try {
+    // Get video page HTML to extract stream information
+    const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+    const response = await fetch(videoUrl);
+    const html = await response.text();
+    
+    // Look for player response data in the HTML
+    const playerResponseMatch = html.match(/var ytInitialPlayerResponse = ({.+?});/);
+    if (!playerResponseMatch) {
+      throw new Error('Could not find player response data');
+    }
+    
+    const playerResponse = JSON.parse(playerResponseMatch[1]);
+    const streamingData = playerResponse?.streamingData;
+    
+    if (!streamingData) {
+      throw new Error('No streaming data available');
+    }
+    
+    // Look for audio-only streams
+    const audioStreams = streamingData.adaptiveFormats?.filter((format: any) => 
+      format.mimeType?.includes('audio') && 
+      (format.mimeType.includes('mp4') || format.mimeType.includes('webm'))
+    );
+    
+    if (audioStreams && audioStreams.length > 0) {
+      // Sort by quality and return the best audio stream
+      audioStreams.sort((a: any, b: any) => (b.bitrate || 0) - (a.bitrate || 0));
+      return audioStreams[0].url;
+    }
+    
+    throw new Error('No suitable audio stream found');
+  } catch (error) {
+    console.error('Audio stream extraction error:', error);
+    return null;
+  }
+}
+
+// Function to download audio and transcribe with OpenAI Whisper
+async function transcribeAudioWithWhisper(audioUrl: string, openaiApiKey: string): Promise<string> {
+  try {
+    console.log('Downloading audio from:', audioUrl.substring(0, 100) + '...');
+    
+    // Download audio data
+    const audioResponse = await fetch(audioUrl);
+    if (!audioResponse.ok) {
+      throw new Error(`Failed to download audio: ${audioResponse.status}`);
+    }
+    
+    const audioBuffer = await audioResponse.arrayBuffer();
+    console.log(`Downloaded audio buffer: ${audioBuffer.byteLength} bytes`);
+    
+    // Prepare form data for OpenAI Whisper API
+    const formData = new FormData();
+    const audioBlob = new Blob([audioBuffer], { type: 'audio/mp4' });
+    formData.append('file', audioBlob, 'audio.mp4');
+    formData.append('model', 'whisper-1');
+    formData.append('response_format', 'text');
+    
+    console.log('Sending audio to OpenAI Whisper API...');
+    
+    // Send to OpenAI Whisper API
+    const whisperResponse = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${openaiApiKey}`,
+      },
+      body: formData,
+    });
+    
+    if (!whisperResponse.ok) {
+      const errorText = await whisperResponse.text();
+      console.error('Whisper API error:', errorText);
+      throw new Error(`Whisper API error: ${whisperResponse.status} - ${errorText}`);
+    }
+    
+    const transcription = await whisperResponse.text();
+    console.log(`Transcription completed: ${transcription.length} characters`);
+    
+    return transcription;
+  } catch (error) {
+    console.error('Audio transcription error:', error);
+    throw new Error(`Audio transcription failed: ${error.message}`);
+  }
+}
+
 serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
@@ -136,41 +224,67 @@ serve(async (req) => {
       throw new Error('No captions available for this video. Please provide an OpenAI API key for audio transcription.');
     }
 
-    // For now, return an informative message about audio transcription
-    // In a production environment, you would implement actual audio extraction here
-    console.log('Would attempt audio transcription with OpenAI API');
-    
-    return new Response(
-      JSON.stringify({
-        transcript: `[Audio Transcription Required]
-
-This video (${videoId}) does not have automatic captions available.
-
-To get the transcript, audio transcription would be needed using OpenAI's Whisper API. However, this requires:
-
-1. Extracting audio from the YouTube video
-2. Converting it to a compatible format
-3. Sending it to OpenAI's Whisper API
-4. Processing the transcription response
-
-Current limitations:
-- YouTube audio extraction requires additional infrastructure
-- Large audio files need special handling
-- Processing can take several minutes for long videos
-
-Your OpenAI API key was provided and would be used for the Whisper API call in a full implementation.
-
-Try finding a video with automatic captions, or consider using a video that has closed captions enabled.`,
-        videoId: videoId,
-        source: 'audio-transcription-needed',
-        success: true,
-        videoTitle: videoInfo?.title || 'Unknown',
-        note: 'Audio transcription infrastructure needed for videos without captions'
-      }),
-      {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    // Try audio transcription with OpenAI Whisper
+    try {
+      console.log('Attempting audio transcription with OpenAI Whisper...');
+      
+      // Get audio stream URL
+      const audioUrl = await getAudioStreamUrl(videoId);
+      if (!audioUrl) {
+        throw new Error('Could not extract audio stream from video');
       }
-    );
+      
+      // Transcribe audio with Whisper
+      const transcript = await transcribeAudioWithWhisper(audioUrl, openaiApiKey);
+      
+      console.log(`Audio transcription completed (${transcript.length} characters)`);
+      
+      return new Response(
+        JSON.stringify({
+          transcript: transcript,
+          videoId: videoId,
+          source: 'whisper-transcription',
+          success: true,
+          videoTitle: videoInfo?.title || 'Unknown'
+        }),
+        {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      );
+      
+    } catch (audioError) {
+      console.error('Audio transcription failed:', audioError.message);
+      
+      return new Response(
+        JSON.stringify({
+          transcript: `[Audio Transcription Failed]
+
+This video (${videoId}) does not have automatic captions available and audio transcription failed.
+
+Error: ${audioError.message}
+
+This could be due to:
+- Video is private or restricted
+- Audio stream is not accessible
+- OpenAI API key is invalid or has insufficient credits
+- Video is too long (Whisper has a 25MB file size limit)
+- Network connectivity issues
+
+Please try:
+1. Using a different video with captions enabled
+2. Checking your OpenAI API key and credits
+3. Using a shorter video (under 25MB when downloaded)`,
+          videoId: videoId,
+          source: 'transcription-failed',
+          success: false,
+          videoTitle: videoInfo?.title || 'Unknown',
+          error: audioError.message
+        }),
+        {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      );
+    }
 
   } catch (error) {
     console.error('Error in youtube-transcript function:', error);
