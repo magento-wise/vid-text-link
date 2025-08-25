@@ -819,34 +819,70 @@ async function transcribeAudioWithWhisper(audioUrl: string, openaiApiKey: string
     
     console.log(`Final audio format for Whisper: ${mimeType} (${fileExtension})`);
     
-    // Prepare form data for OpenAI Whisper API
-    const formData = new FormData();
-    const audioBlob = new Blob([audioBuffer], { type: mimeType });
-    formData.append('file', audioBlob, fileName);
-    formData.append('model', 'whisper-1');
-    formData.append('response_format', 'text');
+    // Try multiple approaches to ensure Whisper compatibility
+    const attempts = [
+      // Attempt 1: Use detected format
+      { mimeType, fileName, description: 'detected format' },
+      // Attempt 2: Force MP3 format (most compatible)
+      { mimeType: 'audio/mpeg', fileName: 'audio.mp3', description: 'forced MP3' },
+      // Attempt 3: Force M4A format
+      { mimeType: 'audio/mp4', fileName: 'audio.m4a', description: 'forced M4A' },
+      // Attempt 4: Force WebM format
+      { mimeType: 'audio/webm', fileName: 'audio.webm', description: 'forced WebM' }
+    ];
     
-    console.log('Sending audio to OpenAI Whisper API...');
-    
-    // Send to OpenAI Whisper API
-    const whisperResponse = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${openaiApiKey}`,
-      },
-      body: formData,
-    });
-    
-    if (!whisperResponse.ok) {
-      const errorText = await whisperResponse.text();
-      console.error('Whisper API error:', errorText);
-      throw new Error(`Whisper API error: ${whisperResponse.status} - ${errorText}`);
-    }
-    
-    const transcription = await whisperResponse.text();
-    console.log(`Transcription completed: ${transcription.length} characters`);
-    
-    return transcription;
+    for (let i = 0; i < attempts.length; i++) {
+      const attempt = attempts[i];
+      try {
+        console.log(`Whisper attempt ${i + 1}/${attempts.length}: ${attempt.description}`);
+        
+        // Prepare form data for OpenAI Whisper API
+        const formData = new FormData();
+        const audioBlob = new Blob([audioBuffer], { type: attempt.mimeType });
+        formData.append('file', audioBlob, attempt.fileName);
+        formData.append('model', 'whisper-1');
+        formData.append('response_format', 'text');
+        
+        console.log(`Sending audio to OpenAI Whisper API (${attempt.description})...`);
+        
+        // Send to OpenAI Whisper API
+        const whisperResponse = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${openaiApiKey}`,
+          },
+          body: formData,
+        });
+        
+        if (whisperResponse.ok) {
+          const transcription = await whisperResponse.text();
+          console.log(`Transcription completed (${attempt.description}): ${transcription.length} characters`);
+          return transcription;
+        } else {
+          const errorText = await whisperResponse.text();
+          console.log(`Whisper attempt ${i + 1} failed: ${whisperResponse.status} - ${errorText}`);
+          
+          // If this is the last attempt, throw the error
+          if (i === attempts.length - 1) {
+            throw new Error(`Whisper API error: ${whisperResponse.status} - ${errorText}`);
+          }
+          // Otherwise, continue to next attempt
+          continue;
+        }
+      } catch (attemptError) {
+        console.log(`Whisper attempt ${i + 1} error: ${attemptError.message}`);
+        
+        // If this is the last attempt, throw the error
+        if (i === attempts.length - 1) {
+          throw attemptError;
+        }
+        // Otherwise, continue to next attempt
+        continue;
+      }
+         }
+     
+     // If we get here, all attempts failed
+     throw new Error('All Whisper API attempts failed');
   } catch (error) {
     console.error('Audio transcription error:', error);
     throw new Error(`Audio transcription failed: ${error.message}`);
