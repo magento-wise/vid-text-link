@@ -16,50 +16,234 @@ function extractVideoId(url: string): string | null {
   return match ? match[1] : null;
 }
 
-// Function to fetch YouTube captions using yt-dlp API approach
+// Function to fetch YouTube captions using multiple approaches
 async function fetchYouTubeCaptions(videoId: string): Promise<string> {
   try {
-    // Try multiple caption endpoints
-    const captionUrls = [
+    console.log(`Attempting to fetch captions for video: ${videoId}`);
+    
+    // Approach 1: Try multiple caption endpoints with different formats
+    const captionEndpoints = [
       `https://www.youtube.com/api/timedtext?v=${videoId}&lang=en&fmt=json3`,
       `https://www.youtube.com/api/timedtext?v=${videoId}&lang=en-US&fmt=json3`,
       `https://www.youtube.com/api/timedtext?v=${videoId}&lang=en&fmt=srv3`,
-      `https://video.google.com/timedtext?lang=en&v=${videoId}&fmt=json3`
+      `https://www.youtube.com/api/timedtext?v=${videoId}&lang=en&fmt=vtt`,
+      `https://www.youtube.com/api/timedtext?v=${videoId}&lang=en&fmt=srv1`,
+      `https://video.google.com/timedtext?lang=en&v=${videoId}&fmt=json3`,
+      `https://www.youtube.com/api/timedtext?v=${videoId}&lang=en&fmt=ttml`,
+      `https://www.youtube.com/api/timedtext?v=${videoId}&lang=en&fmt=srv2`
     ];
 
-    for (const url of captionUrls) {
+    for (const url of captionEndpoints) {
       try {
-        console.log(`Trying caption URL: ${url}`);
-        const response = await fetch(url);
+        console.log(`Trying caption endpoint: ${url}`);
+        const response = await fetch(url, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'application/json, text/plain, */*',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'DNT': '1',
+            'Connection': 'keep-alive'
+          }
+        });
         
         if (response.ok) {
-          const data = await response.json();
-          console.log(`Caption response:`, JSON.stringify(data).substring(0, 200));
+          const contentType = response.headers.get('content-type');
+          console.log(`Caption response content-type: ${contentType}`);
           
-          if (data.events && data.events.length > 0) {
-            // Extract text from transcript events
-            const segments = data.events
-              .filter((event: any) => event.segs && event.segs.length > 0)
-              .map((event: any) => {
-                return event.segs
-                  .map((seg: any) => seg.utf8 || '')
-                  .join('')
-                  .trim();
-              })
-              .filter((text: string) => text && text.length > 0);
+          if (contentType?.includes('application/json')) {
+            const data = await response.json();
+            console.log(`Caption JSON response:`, JSON.stringify(data).substring(0, 300));
+            
+            if (data.events && data.events.length > 0) {
+              // Extract text from transcript events
+              const segments = data.events
+                .filter((event: any) => event.segs && event.segs.length > 0)
+                .map((event: any) => {
+                  return event.segs
+                    .map((seg: any) => seg.utf8 || '')
+                    .join('')
+                    .trim();
+                })
+                .filter((text: string) => text && text.length > 0);
 
-            if (segments.length > 0) {
-              return segments.join(' ').replace(/\s+/g, ' ').trim();
+              if (segments.length > 0) {
+                const transcript = segments.join(' ').replace(/\s+/g, ' ').trim();
+                console.log(`Successfully extracted captions: ${transcript.length} characters`);
+                return transcript;
+              }
+            }
+          } else if (contentType?.includes('text/')) {
+            // Handle text-based caption formats (VTT, SRV, etc.)
+            const text = await response.text();
+            console.log(`Caption text response:`, text.substring(0, 300));
+            
+            // Parse VTT format
+            if (url.includes('fmt=vtt') || text.includes('WEBVTT')) {
+              const vttLines = text.split('\n');
+              const captions = vttLines
+                .filter(line => line.trim() && !line.startsWith('WEBVTT') && !line.includes('-->') && !line.match(/^\d+$/))
+                .map(line => line.trim())
+                .filter(line => line.length > 0);
+              
+              if (captions.length > 0) {
+                const transcript = captions.join(' ').replace(/\s+/g, ' ').trim();
+                console.log(`Successfully extracted VTT captions: ${transcript.length} characters`);
+                return transcript;
+              }
+            }
+            
+            // Parse SRV format
+            if (url.includes('fmt=srv') || text.includes('<text')) {
+              const textMatches = text.match(/<text[^>]*>([^<]+)<\/text>/g);
+              if (textMatches) {
+                const captions = textMatches
+                  .map(match => match.replace(/<text[^>]*>([^<]+)<\/text>/, '$1'))
+                  .map(text => text.trim())
+                  .filter(text => text.length > 0);
+                
+                if (captions.length > 0) {
+                  const transcript = captions.join(' ').replace(/\s+/g, ' ').trim();
+                  console.log(`Successfully extracted SRV captions: ${transcript.length} characters`);
+                  return transcript;
+                }
+              }
             }
           }
         }
       } catch (error) {
-        console.log(`Caption URL ${url} failed:`, error.message);
+        console.log(`Caption endpoint ${url} failed:`, error.message);
         continue;
       }
     }
+
+    // Approach 2: Try to get captions from the video page HTML
+    console.log('Trying to extract captions from video page HTML...');
+    try {
+      const videoPageUrl = `https://www.youtube.com/watch?v=${videoId}`;
+      const response = await fetch(videoPageUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Accept-Encoding': 'gzip, deflate, br',
+          'DNT': '1',
+          'Connection': 'keep-alive',
+          'Upgrade-Insecure-Requests': '1'
+        }
+      });
+
+      if (response.ok) {
+        const html = await response.text();
+        console.log(`Video page HTML length: ${html.length} characters`);
+        
+        // Look for captions in the HTML
+        const captionPatterns = [
+          /"captions":\s*({[^}]+})/,
+          /"captionTracks":\s*(\[[^\]]+\])/,
+          /"caption":\s*"([^"]+)"/,
+          /"transcript":\s*"([^"]+)"/,
+          /"subtitle":\s*"([^"]+)"/
+        ];
+
+        for (const pattern of captionPatterns) {
+          const match = html.match(pattern);
+          if (match) {
+            console.log(`Found caption pattern: ${pattern.source}`);
+            try {
+              if (match[1].startsWith('{') || match[1].startsWith('[')) {
+                const captionData = JSON.parse(match[1]);
+                if (captionData.text || captionData.content) {
+                  const transcript = (captionData.text || captionData.content).replace(/\s+/g, ' ').trim();
+                  console.log(`Successfully extracted captions from HTML: ${transcript.length} characters`);
+                  return transcript;
+                }
+              } else {
+                const transcript = match[1].replace(/\s+/g, ' ').trim();
+                console.log(`Successfully extracted captions from HTML: ${transcript.length} characters`);
+                return transcript;
+              }
+            } catch (parseError) {
+              console.log(`Failed to parse caption data: ${parseError.message}`);
+            }
+          }
+        }
+
+        // Look for ytInitialPlayerResponse which might contain caption data
+        const ytInitialMatch = html.match(/ytInitialPlayerResponse\s*=\s*({.+?});/);
+        if (ytInitialMatch) {
+          try {
+            const playerResponse = JSON.parse(ytInitialMatch[1]);
+            console.log(`Found ytInitialPlayerResponse in HTML`);
+            
+            // Check for captions in player response
+            if (playerResponse.captions?.playerCaptionsTracklistRenderer?.captionTracks) {
+              const captionTracks = playerResponse.captions.playerCaptionsTracklistRenderer.captionTracks;
+              for (const track of captionTracks) {
+                if (track.baseUrl) {
+                  console.log(`Found caption track URL: ${track.baseUrl}`);
+                  // Try to fetch the caption track
+                  const captionResponse = await fetch(track.baseUrl);
+                  if (captionResponse.ok) {
+                    const captionText = await captionResponse.text();
+                    // Parse the caption XML
+                    const textMatches = captionText.match(/<text[^>]*>([^<]+)<\/text>/g);
+                    if (textMatches) {
+                      const captions = textMatches
+                        .map(match => match.replace(/<text[^>]*>([^<]+)<\/text>/, '$1'))
+                        .map(text => text.trim())
+                        .filter(text => text.length > 0);
+                      
+                      if (captions.length > 0) {
+                        const transcript = captions.join(' ').replace(/\s+/g, ' ').trim();
+                        console.log(`Successfully extracted captions from track: ${transcript.length} characters`);
+                        return transcript;
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          } catch (parseError) {
+            console.log(`Failed to parse ytInitialPlayerResponse: ${parseError.message}`);
+          }
+        }
+      }
+    } catch (htmlError) {
+      console.log(`HTML caption extraction failed:`, htmlError.message);
+    }
+
+    // Approach 3: Try using a proxy service to access captions
+    console.log('Trying proxy service for captions...');
+    try {
+      const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://www.youtube.com/api/timedtext?v=${videoId}&lang=en&fmt=json3`)}`;
+      const response = await fetch(proxyUrl);
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.events && data.events.length > 0) {
+          const segments = data.events
+            .filter((event: any) => event.segs && event.segs.length > 0)
+            .map((event: any) => {
+              return event.segs
+                .map((seg: any) => seg.utf8 || '')
+                .join('')
+                .trim();
+            })
+            .filter((text: string) => text && text.length > 0);
+
+          if (segments.length > 0) {
+            const transcript = segments.join(' ').replace(/\s+/g, ' ').trim();
+            console.log(`Successfully extracted captions via proxy: ${transcript.length} characters`);
+            return transcript;
+          }
+        }
+      }
+    } catch (proxyError) {
+      console.log(`Proxy caption extraction failed:`, proxyError.message);
+    }
     
-    throw new Error('No captions found');
+    throw new Error('No captions found after trying all approaches');
   } catch (error) {
     console.error('Caption fetching error:', error);
     throw new Error(`Caption extraction failed: ${error.message}`);
