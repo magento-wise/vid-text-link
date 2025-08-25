@@ -20,7 +20,7 @@ export function SpeechToText() {
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [transcriptions, setTranscriptions] = useState<TranscriptionResult[]>([]);
   const [selectedModel, setSelectedModel] = useState('gpt-4o-mini-transcribe');
-  const [selectedLanguage, setSelectedLanguage] = useState('');
+  const [selectedLanguage, setSelectedLanguage] = useState('auto');
   const [prompt, setPrompt] = useState('');
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -140,7 +140,7 @@ export function SpeechToText() {
         body: {
           audio: base64Audio,
           model: selectedModel,
-          language: selectedLanguage || undefined,
+          language: selectedLanguage === 'auto' ? undefined : selectedLanguage,
           prompt: prompt || undefined
         }
       });
@@ -263,7 +263,7 @@ ${transcription.text}`;
                   <SelectValue placeholder="Auto-detect" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Auto-detect</SelectItem>
+                  <SelectItem value="auto">Auto-detect</SelectItem>
                   <SelectItem value="en">English</SelectItem>
                   <SelectItem value="es">Spanish</SelectItem>
                   <SelectItem value="fr">French</SelectItem>

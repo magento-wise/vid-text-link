@@ -613,18 +613,19 @@ serve(async (req) => {
     // Always try caption extraction first (skip availability check)
     processLog.push('🔍 Attempting to fetch YouTube captions...');
     
+    let captionTranscript: string | null = null;
     try {
       console.log('Attempting to fetch YouTube captions...');
       
-      const transcript = await fetchYouTubeCaptions(videoId);
+      captionTranscript = await fetchYouTubeCaptions(videoId);
       
-      if (transcript && transcript.length > 10) {
-        console.log(`Successfully fetched captions (${transcript.length} characters)`);
-        processLog.push(`✓ Successfully fetched captions (${transcript.length} characters)`);
+      if (captionTranscript && captionTranscript.length > 10) {
+        console.log(`Successfully fetched captions (${captionTranscript.length} characters)`);
+        processLog.push(`✓ Successfully fetched captions (${captionTranscript.length} characters)`);
         
         return new Response(
           JSON.stringify({
-            transcript: transcript,
+            transcript: captionTranscript,
             videoId: videoId,
             source: 'captions',
             success: true,
@@ -637,7 +638,7 @@ serve(async (req) => {
         );
       }
     } catch (captionError) {
-      console.log('No captions available:', captionError.message);
+      console.log('Caption extraction failed:', captionError.message);
       processLog.push(`✗ Caption extraction failed: ${captionError.message}`);
       captionAttemptDetails.push(`Caption error: ${captionError.message}`);
     }
