@@ -536,9 +536,39 @@ async function tryThirdPartyServices(videoId: string): Promise<string | null> {
       extractor: (data: any) => data.url || data.link || data.download_url
     },
     {
-      name: 'Loader.to',
+      name: 'Loader.to MP3',
       url: `https://loader.to/api/button/?url=https://www.youtube.com/watch?v=${videoId}&f=mp3`,
       extractor: (data: any) => data.url || data.link || data.download_url
+    },
+    {
+      name: 'Loader.to MP4',
+      url: `https://loader.to/api/button/?url=https://www.youtube.com/watch?v=${videoId}&f=mp4`,
+      extractor: (data: any) => data.url || data.link || data.download_url
+    },
+    {
+      name: 'Y2Mate',
+      url: `https://www.y2mate.com/youtube/${videoId}`,
+      extractor: async (html: string) => {
+        const match = html.match(/k__id\s*=\s*"([^"]+)"/);
+        if (match) {
+          const kId = match[1];
+          const convertUrl = `https://www.y2mate.com/convert/${videoId}/${kId}`;
+          const convertResponse = await fetch(convertUrl);
+          if (convertResponse.ok) {
+            const convertData = await convertResponse.json();
+            return convertData.url;
+          }
+        }
+        return null;
+      }
+    },
+    {
+      name: 'SaveFrom',
+      url: `https://en.savefrom.net/${videoId}`,
+      extractor: (html: string) => {
+        const match = html.match(/download_url["\s]*:["\s]*"([^"]+)"/);
+        return match ? match[1] : null;
+      }
     }
   ];
 
@@ -1069,6 +1099,13 @@ Note: Due to YouTube's bot detection measures, videos with existing captions are
         processLog.push('🔄 Primary method failed, trying alternative services...');
         audioAttemptDetails.push('Primary method failed, trying alternative services');
         audioUrl = await getVideoDataAlternative(videoId);
+      }
+      
+      // If still no audio URL, try direct YouTube extraction as last resort
+      if (!audioUrl) {
+        processLog.push('🔄 Alternative services failed, trying direct YouTube extraction...');
+        audioAttemptDetails.push('Alternative services failed, trying direct YouTube extraction');
+        audioUrl = await extractDirectFromYouTube(videoId);
       }
       
       if (!audioUrl) {
