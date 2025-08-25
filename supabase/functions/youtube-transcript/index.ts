@@ -67,7 +67,16 @@ async function fetchYouTubeCaptions(videoId: string): Promise<string> {
 async function getVideoInfo(videoId: string): Promise<any> {
   try {
     // Try to get video information to see if captions are available
-    const response = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`);
+    const response = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'DNT': '1',
+        'Connection': 'keep-alive'
+      }
+    });
     
     if (response.ok) {
       const data = await response.json();
@@ -82,9 +91,52 @@ async function getVideoInfo(videoId: string): Promise<any> {
   }
 }
 
+// Function to check if video has captions available
+async function checkCaptionsAvailability(videoId: string): Promise<boolean> {
+  try {
+    const captionUrls = [
+      `https://www.youtube.com/api/timedtext?v=${videoId}&lang=en&fmt=json3`,
+      `https://www.youtube.com/api/timedtext?v=${videoId}&lang=en-US&fmt=json3`
+    ];
+
+    for (const url of captionUrls) {
+      try {
+        const response = await fetch(url, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+          }
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          if (data.events && data.events.length > 0) {
+            return true;
+          }
+        }
+      } catch (error) {
+        continue;
+      }
+    }
+    
+    return false;
+  } catch (error) {
+    console.log('Caption availability check failed:', error.message);
+    return false;
+  }
+}
+
 // Function to get audio stream using yt-dlp format approach
 async function getAudioStreamUrl(videoId: string): Promise<string | null> {
-  try {
+  const maxRetries = 3;
+  const retryDelay = 2000; // 2 seconds
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      console.log(`Attempt ${attempt}/${maxRetries} to get audio stream URL`);
+      
+      if (attempt > 1) {
+        await new Promise(resolve => setTimeout(resolve, retryDelay));
+      }
     // Use YouTube's player API to get stream information
     const playerApiUrl = `https://www.youtube.com/youtubei/v1/player?key=AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8`;
     
@@ -92,20 +144,58 @@ async function getAudioStreamUrl(videoId: string): Promise<string | null> {
       context: {
         client: {
           clientName: "WEB",
-          clientVersion: "2.20210721.00.00"
+          clientVersion: "2.20231219.01.00",
+          clientScreen: "WATCH_FIXED",
+          platform: "DESKTOP",
+          browserName: "Chrome",
+          browserVersion: "120.0.0.0",
+          osName: "Windows",
+          osVersion: "10.0",
+          userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        },
+        user: {
+          lockedSafetyMode: false
+        },
+        request: {
+          useSsl: true,
+          internalExperimentFlags: [],
+          consistencyTokenJars: []
         }
       },
-      videoId: videoId
+      videoId: videoId,
+      playbackContext: {
+        contentPlaybackContext: {
+          vis: 0,
+          sffb: false,
+          lactMilliseconds: "0"
+        }
+      },
+      racyCheckOk: false,
+      contentCheckOk: false
     };
 
     console.log(`Fetching player data for video: ${videoId}`);
     
+    // Enhanced headers to appear more like a real browser
+    const headers = {
+      'Content-Type': 'application/json',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Accept-Encoding': 'gzip, deflate, br',
+      'DNT': '1',
+      'Connection': 'keep-alive',
+      'Upgrade-Insecure-Requests': '1',
+      'Sec-Fetch-Dest': 'document',
+      'Sec-Fetch-Mode': 'navigate',
+      'Sec-Fetch-Site': 'none',
+      'Sec-Fetch-User': '?1',
+      'Cache-Control': 'max-age=0'
+    };
+
     const response = await fetch(playerApiUrl, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-      },
+      headers: headers,
       body: JSON.stringify(requestBody)
     });
 
@@ -141,8 +231,76 @@ async function getAudioStreamUrl(videoId: string): Promise<string | null> {
     console.log(`Selected audio format: ${bestAudio.mimeType}, bitrate: ${bestAudio.bitrate}`);
     return bestAudio.url;
 
+    } catch (error) {
+      console.error(`Attempt ${attempt} failed:`, error.message);
+      
+      if (attempt === maxRetries) {
+        console.error('All retry attempts failed for audio stream extraction');
+        return null;
+      }
+      
+      // Continue to next attempt
+    }
+  }
+  
+  return null;
+}
+
+// Alternative function to try different approaches for video data
+async function getVideoDataAlternative(videoId: string): Promise<string | null> {
+  try {
+    // Try using yt-dlp approach with different endpoints
+    const endpoints = [
+      `https://www.youtube.com/watch?v=${videoId}`,
+      `https://www.youtube.com/embed/${videoId}`,
+      `https://www.youtube.com/v/${videoId}`
+    ];
+
+    for (const endpoint of endpoints) {
+      try {
+        console.log(`Trying alternative endpoint: ${endpoint}`);
+        
+        const response = await fetch(endpoint, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'DNT': '1',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1'
+          }
+        });
+
+        if (response.ok) {
+          const html = await response.text();
+          
+          // Look for ytInitialPlayerResponse in the HTML
+          const ytInitialMatch = html.match(/ytInitialPlayerResponse\s*=\s*({.+?});/);
+          if (ytInitialMatch) {
+            const playerResponse = JSON.parse(ytInitialMatch[1]);
+            
+            if (playerResponse.streamingData?.adaptiveFormats) {
+              const audioFormats = playerResponse.streamingData.adaptiveFormats.filter((format: any) => 
+                format.mimeType?.startsWith('audio/') && format.url
+              );
+              
+              if (audioFormats.length > 0) {
+                audioFormats.sort((a: any, b: any) => (b.bitrate || 0) - (a.bitrate || 0));
+                return audioFormats[0].url;
+              }
+            }
+          }
+        }
+      } catch (endpointError) {
+        console.log(`Alternative endpoint ${endpoint} failed:`, endpointError.message);
+        continue;
+      }
+    }
+    
+    return null;
   } catch (error) {
-    console.error('Audio stream extraction error:', error);
+    console.error('Alternative video data extraction error:', error);
     return null;
   }
 }
@@ -224,6 +382,16 @@ serve(async (req) => {
     const videoInfo = await getVideoInfo(videoId);
     processLog.push(`✓ Video info retrieved: ${videoInfo?.title || 'Unknown'}`);
     
+    // Check if captions are available first
+    processLog.push('🔍 Checking if video has captions available...');
+    const hasCaptions = await checkCaptionsAvailability(videoId);
+    
+    if (hasCaptions) {
+      processLog.push('✓ Captions detected as available');
+    } else {
+      processLog.push('✗ No captions detected - will need audio transcription');
+    }
+    
     // Try to get YouTube captions first
     try {
       console.log('Attempting to fetch YouTube captions...');
@@ -271,8 +439,11 @@ ${processLog.join('\n')}
 This video does not have automatic captions available and no OpenAI API key was provided for audio transcription.
 
 To get a transcript, please:
-1. Provide an OpenAI API key for audio transcription
-2. Or try a different video that has captions enabled`,
+1. Provide an OpenAI API key for audio transcription (recommended)
+2. Try a different video that has captions enabled
+3. Look for videos with the "CC" (closed captions) button in YouTube
+
+Note: Due to YouTube's bot detection measures, videos with existing captions are much more reliable than audio transcription.`,
           videoId: videoId,
           source: 'no-api-key',
           success: false,
@@ -292,13 +463,20 @@ To get a transcript, please:
       console.log('Attempting audio transcription with OpenAI Whisper...');
       processLog.push('🎵 Attempting audio transcription with OpenAI Whisper...');
       
-      // Get audio stream URL
-      processLog.push('🔗 Extracting audio stream URL...');
-      const audioUrl = await getAudioStreamUrl(videoId);
+      // Get audio stream URL - try primary method first
+      processLog.push('🔗 Extracting audio stream URL (primary method)...');
+      let audioUrl = await getAudioStreamUrl(videoId);
+      
+      // If primary method fails, try alternative approach
+      if (!audioUrl) {
+        processLog.push('🔄 Primary method failed, trying alternative approach...');
+        audioAttemptDetails.push('Primary method failed, trying alternative approach');
+        audioUrl = await getVideoDataAlternative(videoId);
+      }
       
       if (!audioUrl) {
-        audioAttemptDetails.push('Failed to extract audio stream URL');
-        throw new Error('Could not extract audio stream from video');
+        audioAttemptDetails.push('Both primary and alternative methods failed to extract audio stream URL');
+        throw new Error('Could not extract audio stream from video - YouTube may be blocking automated requests');
       }
       
       processLog.push(`✓ Audio stream URL extracted (${audioUrl.substring(0, 50)}...)`);
@@ -350,18 +528,22 @@ Error Details:
 ${audioError.message}
 
 This could be due to:
+- YouTube bot detection blocking automated requests
 - Video is private or restricted
-- YouTube blocking automated requests
 - Audio stream is not accessible
 - OpenAI API key is invalid or has insufficient credits
 - Video is too long (Whisper has a 25MB file size limit)
 - Network connectivity issues
 
-Please try:
-1. Using a different video with captions enabled
-2. Checking your OpenAI API key and credits
-3. Using a shorter video (under 25MB when downloaded)
-4. Trying a public video that allows downloads`,
+Solutions to try:
+1. Use a video that has YouTube captions available (most reliable)
+2. Try a different YouTube video (some videos have stricter bot protection)
+3. Check your OpenAI API key and credits
+4. Use a shorter video (under 25MB when downloaded)
+5. Wait a few minutes and try again (rate limiting)
+6. Try during off-peak hours when YouTube's bot detection may be less strict
+
+Note: YouTube has recently increased bot detection measures, making automated video processing more challenging. Videos with existing captions are the most reliable option.`,
           videoId: videoId,
           source: 'transcription-failed',
           success: false,
