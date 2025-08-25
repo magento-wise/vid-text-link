@@ -2,6 +2,9 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
+// Version: 2025-01-25-21-45 - Third-party service approach
+// This ensures the latest code is deployed
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -372,6 +375,9 @@ serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
+
+  // Log deployment version for debugging
+  console.log('YouTube Transcript Function - Version: 2025-01-25-21-45 - Third-party service approach');
 
   try {
     const { youtubeUrl, openaiApiKey, youtubeApiKey: userYoutubeApiKey } = await req.json();
