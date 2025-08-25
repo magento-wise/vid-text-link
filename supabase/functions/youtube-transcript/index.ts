@@ -243,10 +243,12 @@ async function fetchYouTubeCaptions(videoId: string): Promise<string> {
       console.log(`Proxy caption extraction failed:`, proxyError.message);
     }
     
-    throw new Error('No captions found after trying all approaches');
+    console.log('No captions found after trying all approaches');
+    return null;
   } catch (error) {
     console.error('Caption fetching error:', error);
-    throw new Error(`Caption extraction failed: ${error.message}`);
+    console.log('Caption extraction failed, returning null');
+    return null;
   }
 }
 
