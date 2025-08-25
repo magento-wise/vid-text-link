@@ -26,44 +26,57 @@ async function fetchYouTubeCaptions(videoId: string, youtubeApiKey?: string): Pr
     
     // Approach 1: Try YouTube Data API for captions (most reliable)
     if (youtubeApiKey) {
-      try {
-        console.log('Trying YouTube Data API for captions...');
-        const apiUrl = `https://www.googleapis.com/youtube/v3/captions?part=snippet&videoId=${videoId}&key=${youtubeApiKey}`;
+      // Split multiple API keys if provided (comma-separated)
+      const apiKeys = youtubeApiKey.split(',').map(key => key.trim()).filter(key => key.length > 0);
+      console.log(`Found ${apiKeys.length} YouTube API key(s) to try`);
+      
+      for (let i = 0; i < apiKeys.length; i++) {
+        const currentApiKey = apiKeys[i];
+        console.log(`Trying YouTube API key ${i + 1}/${apiKeys.length}: ${currentApiKey.substring(0, 10)}...`);
         
-        const response = await fetch(apiUrl);
-        if (response.ok) {
-          const data = await response.json();
-          console.log(`YouTube API response:`, JSON.stringify(data).substring(0, 300));
+        try {
+          console.log('Trying YouTube Data API for captions...');
+          const apiUrl = `https://www.googleapis.com/youtube/v3/captions?part=snippet&videoId=${videoId}&key=${currentApiKey}`;
           
-          if (data.items && data.items.length > 0) {
-            // Found captions, now get the actual caption content
-            for (const caption of data.items) {
-              if (caption.snippet.language === 'en' || caption.snippet.language === 'en-US') {
-                console.log(`Found English captions: ${caption.id}`);
-                
-                // Get caption content
-                const captionUrl = `https://www.googleapis.com/youtube/v3/captions/${caption.id}?key=${youtubeApiKey}`;
-                const captionResponse = await fetch(captionUrl, {
-                  headers: {
-                    'Authorization': `Bearer ${youtubeApiKey}`,
-                    'Accept': 'application/json'
-                  }
-                });
-                
-                if (captionResponse.ok) {
-                  const captionData = await captionResponse.json();
-                  if (captionData.text) {
-                    console.log(`Successfully extracted captions via YouTube API: ${captionData.text.length} characters`);
-                    return captionData.text;
+          const response = await fetch(apiUrl);
+          if (response.ok) {
+            const data = await response.json();
+            console.log(`YouTube API response:`, JSON.stringify(data).substring(0, 300));
+            
+            if (data.items && data.items.length > 0) {
+              // Found captions, now get the actual caption content
+              for (const caption of data.items) {
+                if (caption.snippet.language === 'en' || caption.snippet.language === 'en-US') {
+                  console.log(`Found English captions: ${caption.id}`);
+                  
+                  // Get caption content
+                  const captionUrl = `https://www.googleapis.com/youtube/v3/captions/${caption.id}?key=${currentApiKey}`;
+                  const captionResponse = await fetch(captionUrl, {
+                    headers: {
+                      'Authorization': `Bearer ${currentApiKey}`,
+                      'Accept': 'application/json'
+                    }
+                  });
+                  
+                  if (captionResponse.ok) {
+                    const captionData = await captionResponse.json();
+                    if (captionData.text) {
+                      console.log(`Successfully extracted captions via YouTube API: ${captionData.text.length} characters`);
+                      return captionData.text;
+                    }
                   }
                 }
               }
             }
           }
+        } catch (apiError) {
+          console.log(`YouTube API key ${i + 1} failed: ${apiError.message}`);
+          // Continue to next API key
+          continue;
         }
-      } catch (apiError) {
-        console.log(`YouTube API caption extraction failed: ${apiError.message}`);
       }
+      
+      console.log('All YouTube API keys failed, falling back to scraping methods');
     }
     
     // Approach 2: Try multiple caption endpoints with different formats
@@ -302,30 +315,43 @@ async function getVideoInfo(videoId: string, youtubeApiKey?: string): Promise<an
   try {
     // Try YouTube Data API first (most reliable)
     if (youtubeApiKey) {
-      try {
-        console.log('Trying YouTube Data API for video info...');
-        const apiUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails,statistics&id=${videoId}&key=${youtubeApiKey}`;
+      // Split multiple API keys if provided (comma-separated)
+      const apiKeys = youtubeApiKey.split(',').map(key => key.trim()).filter(key => key.length > 0);
+      console.log(`Found ${apiKeys.length} YouTube API key(s) for video info`);
+      
+      for (let i = 0; i < apiKeys.length; i++) {
+        const currentApiKey = apiKeys[i];
+        console.log(`Trying YouTube API key ${i + 1}/${apiKeys.length} for video info: ${currentApiKey.substring(0, 10)}...`);
         
-        const response = await fetch(apiUrl);
-        if (response.ok) {
-          const data = await response.json();
-          console.log(`YouTube API video info:`, JSON.stringify(data).substring(0, 300));
+        try {
+          console.log('Trying YouTube Data API for video info...');
+          const apiUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails,statistics&id=${videoId}&key=${currentApiKey}`;
           
-          if (data.items && data.items.length > 0) {
-            const video = data.items[0];
-            return {
-              title: video.snippet.title,
-              description: video.snippet.description,
-              duration: video.contentDetails.duration,
-              viewCount: video.statistics.viewCount,
-              publishedAt: video.snippet.publishedAt,
-              channelTitle: video.snippet.channelTitle
-            };
+          const response = await fetch(apiUrl);
+          if (response.ok) {
+            const data = await response.json();
+            console.log(`YouTube API video info:`, JSON.stringify(data).substring(0, 300));
+            
+            if (data.items && data.items.length > 0) {
+              const video = data.items[0];
+              return {
+                title: video.snippet.title,
+                description: video.snippet.description,
+                duration: video.contentDetails.duration,
+                viewCount: video.statistics.viewCount,
+                publishedAt: video.snippet.publishedAt,
+                channelTitle: video.snippet.channelTitle
+              };
+            }
           }
+        } catch (apiError) {
+          console.log(`YouTube API key ${i + 1} for video info failed: ${apiError.message}`);
+          // Continue to next API key
+          continue;
         }
-      } catch (apiError) {
-        console.log(`YouTube API video info failed: ${apiError.message}`);
       }
+      
+      console.log('All YouTube API keys failed for video info, falling back to oembed');
     }
     
     // Fallback to oembed
