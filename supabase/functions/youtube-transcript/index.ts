@@ -932,7 +932,7 @@ Note: Due to YouTube's bot detection measures, videos with existing captions are
           audioAttemptDetails: audioAttemptDetails
         }),
         {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          headers: { ...responseHeaders, 'Content-Type': 'application/json' },
         }
       );
       
@@ -986,7 +986,7 @@ Note: YouTube has recently increased protection measures against automated reque
           audioAttemptDetails: audioAttemptDetails
         }),
         {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          headers: { ...responseHeaders, 'Content-Type': 'application/json' },
         }
       );
     }
