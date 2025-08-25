@@ -750,10 +750,68 @@ async function transcribeAudioWithWhisper(audioUrl: string, openaiApiKey: string
     const audioBuffer = await audioResponse.arrayBuffer();
     console.log(`Downloaded audio buffer: ${audioBuffer.byteLength} bytes`);
     
+    // Detect audio format from URL and response headers
+    let mimeType = 'audio/mp4';
+    let fileExtension = 'mp4';
+    let fileName = 'audio.mp4';
+    
+    // Check content-type header first
+    const contentType = audioResponse.headers.get('content-type');
+    if (contentType) {
+      console.log(`Audio content-type: ${contentType}`);
+      if (contentType.includes('audio/')) {
+        mimeType = contentType;
+        // Extract extension from content-type
+        if (contentType.includes('mp3')) {
+          fileExtension = 'mp3';
+          fileName = 'audio.mp3';
+        } else if (contentType.includes('m4a')) {
+          fileExtension = 'm4a';
+          fileName = 'audio.m4a';
+        } else if (contentType.includes('webm')) {
+          fileExtension = 'webm';
+          fileName = 'audio.webm';
+        } else if (contentType.includes('wav')) {
+          fileExtension = 'wav';
+          fileName = 'audio.wav';
+        } else if (contentType.includes('ogg')) {
+          fileExtension = 'ogg';
+          fileName = 'audio.ogg';
+        }
+      }
+    }
+    
+    // Fallback: detect from URL
+    if (fileExtension === 'mp4') {
+      if (audioUrl.includes('.mp3')) {
+        mimeType = 'audio/mpeg';
+        fileExtension = 'mp3';
+        fileName = 'audio.mp3';
+      } else if (audioUrl.includes('.m4a')) {
+        mimeType = 'audio/mp4';
+        fileExtension = 'm4a';
+        fileName = 'audio.m4a';
+      } else if (audioUrl.includes('.webm')) {
+        mimeType = 'audio/webm';
+        fileExtension = 'webm';
+        fileName = 'audio.webm';
+      } else if (audioUrl.includes('.wav')) {
+        mimeType = 'audio/wav';
+        fileExtension = 'wav';
+        fileName = 'audio.wav';
+      } else if (audioUrl.includes('.ogg')) {
+        mimeType = 'audio/ogg';
+        fileExtension = 'ogg';
+        fileName = 'audio.ogg';
+      }
+    }
+    
+    console.log(`Detected audio format: ${mimeType} (${fileExtension})`);
+    
     // Prepare form data for OpenAI Whisper API
     const formData = new FormData();
-    const audioBlob = new Blob([audioBuffer], { type: 'audio/mp4' });
-    formData.append('file', audioBlob, 'audio.mp4');
+    const audioBlob = new Blob([audioBuffer], { type: mimeType });
+    formData.append('file', audioBlob, fileName);
     formData.append('model', 'whisper-1');
     formData.append('response_format', 'text');
     
