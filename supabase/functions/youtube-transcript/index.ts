@@ -19,11 +19,53 @@ function extractVideoId(url: string): string | null {
 }
 
 // Function to fetch YouTube captions using multiple approaches
-async function fetchYouTubeCaptions(videoId: string): Promise<string> {
+async function fetchYouTubeCaptions(videoId: string, youtubeApiKey?: string): Promise<string> {
   try {
     console.log(`Attempting to fetch captions for video: ${videoId}`);
     
-    // Approach 1: Try multiple caption endpoints with different formats
+    // Approach 1: Try YouTube Data API for captions (most reliable)
+    if (youtubeApiKey) {
+      try {
+        console.log('Trying YouTube Data API for captions...');
+        const apiUrl = `https://www.googleapis.com/youtube/v3/captions?part=snippet&videoId=${videoId}&key=${youtubeApiKey}`;
+        
+        const response = await fetch(apiUrl);
+        if (response.ok) {
+          const data = await response.json();
+          console.log(`YouTube API response:`, JSON.stringify(data).substring(0, 300));
+          
+          if (data.items && data.items.length > 0) {
+            // Found captions, now get the actual caption content
+            for (const caption of data.items) {
+              if (caption.snippet.language === 'en' || caption.snippet.language === 'en-US') {
+                console.log(`Found English captions: ${caption.id}`);
+                
+                // Get caption content
+                const captionUrl = `https://www.googleapis.com/youtube/v3/captions/${caption.id}?key=${youtubeApiKey}`;
+                const captionResponse = await fetch(captionUrl, {
+                  headers: {
+                    'Authorization': `Bearer ${youtubeApiKey}`,
+                    'Accept': 'application/json'
+                  }
+                });
+                
+                if (captionResponse.ok) {
+                  const captionData = await captionResponse.json();
+                  if (captionData.text) {
+                    console.log(`Successfully extracted captions via YouTube API: ${captionData.text.length} characters`);
+                    return captionData.text;
+                  }
+                }
+              }
+            }
+          }
+        }
+      } catch (apiError) {
+        console.log(`YouTube API caption extraction failed: ${apiError.message}`);
+      }
+    }
+    
+    // Approach 2: Try multiple caption endpoints with different formats
     const captionEndpoints = [
       `https://www.youtube.com/api/timedtext?v=${videoId}&lang=en&fmt=json3`,
       `https://www.youtube.com/api/timedtext?v=${videoId}&lang=en-US&fmt=json3`,
@@ -255,9 +297,37 @@ async function fetchYouTubeCaptions(videoId: string): Promise<string> {
 }
 
 // Function to get video info and check if captions are available
-async function getVideoInfo(videoId: string): Promise<any> {
+async function getVideoInfo(videoId: string, youtubeApiKey?: string): Promise<any> {
   try {
-    // Try to get video information to see if captions are available
+    // Try YouTube Data API first (most reliable)
+    if (youtubeApiKey) {
+      try {
+        console.log('Trying YouTube Data API for video info...');
+        const apiUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails,statistics&id=${videoId}&key=${youtubeApiKey}`;
+        
+        const response = await fetch(apiUrl);
+        if (response.ok) {
+          const data = await response.json();
+          console.log(`YouTube API video info:`, JSON.stringify(data).substring(0, 300));
+          
+          if (data.items && data.items.length > 0) {
+            const video = data.items[0];
+            return {
+              title: video.snippet.title,
+              description: video.snippet.description,
+              duration: video.contentDetails.duration,
+              viewCount: video.statistics.viewCount,
+              publishedAt: video.snippet.publishedAt,
+              channelTitle: video.snippet.channelTitle
+            };
+          }
+        }
+      } catch (apiError) {
+        console.log(`YouTube API video info failed: ${apiError.message}`);
+      }
+    }
+    
+    // Fallback to oembed
     const response = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -271,7 +341,7 @@ async function getVideoInfo(videoId: string): Promise<any> {
     
     if (response.ok) {
       const data = await response.json();
-      console.log(`Video info:`, data);
+      console.log(`Video info (oembed):`, data);
       return data;
     }
     
@@ -1053,7 +1123,7 @@ serve(async (req) => {
     let audioAttemptDetails: string[] = [];
 
     // Get video info first
-    const videoInfo = await getVideoInfo(videoId);
+    const videoInfo = await getVideoInfo(videoId, userYoutubeApiKey);
     processLog.push(`✓ Video info retrieved: ${videoInfo?.title || 'Unknown'}`);
     
     // Always try caption extraction first (skip availability check)
@@ -1063,7 +1133,7 @@ serve(async (req) => {
     try {
       console.log('Attempting to fetch YouTube captions...');
       
-      captionTranscript = await fetchYouTubeCaptions(videoId);
+      captionTranscript = await fetchYouTubeCaptions(videoId, userYoutubeApiKey);
       
       if (captionTranscript && captionTranscript.length > 10) {
         console.log(`Successfully fetched captions (${captionTranscript.length} characters)`);
