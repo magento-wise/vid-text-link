@@ -11,6 +11,7 @@ interface TranscriptInputProps {
 
 export function TranscriptInput({ onTranscriptReceived }: TranscriptInputProps) {
   const [url, setUrl] = useState("");
+  const [apiKey, setApiKey] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
 
@@ -31,6 +32,15 @@ export function TranscriptInput({ onTranscriptReceived }: TranscriptInputProps) 
       toast({
         title: "Error",
         description: "Please enter a YouTube URL",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!apiKey.trim()) {
+      toast({
+        title: "Error",
+        description: "Please enter your OpenAI API key",
         variant: "destructive",
       });
       return;
@@ -69,7 +79,7 @@ export function TranscriptInput({ onTranscriptReceived }: TranscriptInputProps) 
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ youtubeUrl: url }),
+        body: JSON.stringify({ youtubeUrl: url, openaiApiKey: apiKey }),
       });
 
       const data = await response.json();
@@ -109,6 +119,23 @@ export function TranscriptInput({ onTranscriptReceived }: TranscriptInputProps) 
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-2">
+            <label htmlFor="openai-key" className="text-sm font-medium">
+              OpenAI API Key
+            </label>
+            <Input
+              id="openai-key"
+              type="password"
+              placeholder="sk-..."
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              disabled={isLoading}
+              className="h-12 text-lg"
+            />
+            <p className="text-xs text-muted-foreground">
+              Your API key is only used for this request and is not stored anywhere.
+            </p>
+          </div>
           <div className="space-y-2">
             <label htmlFor="youtube-url" className="text-sm font-medium">
               YouTube URL
