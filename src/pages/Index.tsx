@@ -6,10 +6,12 @@ import heroImage from "@/assets/hero-bg.jpg";
 const Index = () => {
   const [transcript, setTranscript] = useState<string | null>(null);
   const [videoId, setVideoId] = useState<string | null>(null);
+  const [responseData, setResponseData] = useState<any>(null);
 
-  const handleTranscriptReceived = (transcriptText: string, id: string) => {
+  const handleTranscriptReceived = (transcriptText: string, id: string, data?: any) => {
     setTranscript(transcriptText);
     setVideoId(id);
+    setResponseData(data);
   };
 
   const handleReset = () => {
@@ -41,6 +43,11 @@ const Index = () => {
               transcript={transcript}
               videoId={videoId}
               onReset={handleReset}
+              processLog={responseData?.processLog}
+              captionAttemptDetails={responseData?.captionAttemptDetails}
+              audioAttemptDetails={responseData?.audioAttemptDetails}
+              source={responseData?.source}
+              error={responseData?.error}
             />
           ) : (
             <TranscriptInput onTranscriptReceived={handleTranscriptReceived} />

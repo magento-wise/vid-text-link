@@ -6,7 +6,7 @@ import { Loader2, Youtube, Sparkles } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 interface TranscriptInputProps {
-  onTranscriptReceived: (transcript: string, videoId: string) => void;
+  onTranscriptReceived: (transcript: string, videoId: string, responseData?: any) => void;
 }
 
 export function TranscriptInput({ onTranscriptReceived }: TranscriptInputProps) {
@@ -88,11 +88,14 @@ export function TranscriptInput({ onTranscriptReceived }: TranscriptInputProps) 
         throw new Error(data.error || 'Failed to process video');
       }
 
-      onTranscriptReceived(data.transcript, data.videoId);
+      onTranscriptReceived(data.transcript, data.videoId, data);
       
       toast({
-        title: "Success!",
-        description: `Transcript generated successfully using ${data.source === 'captions' ? 'YouTube captions' : 'AI transcription'}`,
+        title: data.success ? "Success!" : "Partial Success",
+        description: data.success 
+          ? `Transcript generated successfully using ${data.source === 'captions' ? 'YouTube captions' : 'AI transcription'}`
+          : `Process completed with issues. Check the process log for details.`,
+        variant: data.success ? "default" : "destructive",
       });
     } catch (error) {
       console.error('Transcription error:', error);

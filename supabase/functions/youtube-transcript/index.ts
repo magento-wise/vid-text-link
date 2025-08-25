@@ -215,17 +215,25 @@ serve(async (req) => {
     }
 
     console.log(`Processing video: ${videoId}`);
+    
+    const processLog: string[] = [];
+    let captionAttemptDetails: string[] = [];
+    let audioAttemptDetails: string[] = [];
 
     // Get video info first
     const videoInfo = await getVideoInfo(videoId);
+    processLog.push(`✓ Video info retrieved: ${videoInfo?.title || 'Unknown'}`);
     
     // Try to get YouTube captions first
     try {
       console.log('Attempting to fetch YouTube captions...');
+      processLog.push('🔍 Attempting to fetch YouTube captions...');
+      
       const transcript = await fetchYouTubeCaptions(videoId);
       
       if (transcript && transcript.length > 10) {
         console.log(`Successfully fetched captions (${transcript.length} characters)`);
+        processLog.push(`✓ Successfully fetched captions (${transcript.length} characters)`);
         
         return new Response(
           JSON.stringify({
@@ -233,7 +241,8 @@ serve(async (req) => {
             videoId: videoId,
             source: 'captions',
             success: true,
-            videoTitle: videoInfo?.title || 'Unknown'
+            videoTitle: videoInfo?.title || 'Unknown',
+            processLog: processLog
           }),
           {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -242,27 +251,65 @@ serve(async (req) => {
       }
     } catch (captionError) {
       console.log('No captions available:', captionError.message);
+      processLog.push(`✗ Caption extraction failed: ${captionError.message}`);
+      captionAttemptDetails.push(`Caption error: ${captionError.message}`);
     }
 
-    // If no captions and no OpenAI key, return error
+    // If no captions and no OpenAI key, return detailed error
     if (!openaiApiKey) {
-      throw new Error('No captions available for this video. Please provide an OpenAI API key for audio transcription.');
+      processLog.push('✗ No OpenAI API key provided for audio transcription');
+      
+      return new Response(
+        JSON.stringify({
+          transcript: `[No Transcript Available]
+
+Video: ${videoInfo?.title || 'Unknown'} (${videoId})
+
+Process Log:
+${processLog.join('\n')}
+
+This video does not have automatic captions available and no OpenAI API key was provided for audio transcription.
+
+To get a transcript, please:
+1. Provide an OpenAI API key for audio transcription
+2. Or try a different video that has captions enabled`,
+          videoId: videoId,
+          source: 'no-api-key',
+          success: false,
+          videoTitle: videoInfo?.title || 'Unknown',
+          error: 'No captions available and no OpenAI API key provided',
+          processLog: processLog,
+          captionAttemptDetails: captionAttemptDetails
+        }),
+        {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      );
     }
 
     // Try audio transcription with OpenAI Whisper
     try {
       console.log('Attempting audio transcription with OpenAI Whisper...');
+      processLog.push('🎵 Attempting audio transcription with OpenAI Whisper...');
       
       // Get audio stream URL
+      processLog.push('🔗 Extracting audio stream URL...');
       const audioUrl = await getAudioStreamUrl(videoId);
+      
       if (!audioUrl) {
+        audioAttemptDetails.push('Failed to extract audio stream URL');
         throw new Error('Could not extract audio stream from video');
       }
       
+      processLog.push(`✓ Audio stream URL extracted (${audioUrl.substring(0, 50)}...)`);
+      audioAttemptDetails.push(`Audio URL length: ${audioUrl.length} characters`);
+      
       // Transcribe audio with Whisper
+      processLog.push('🤖 Sending audio to OpenAI Whisper...');
       const transcript = await transcribeAudioWithWhisper(audioUrl, openaiApiKey);
       
       console.log(`Audio transcription completed (${transcript.length} characters)`);
+      processLog.push(`✓ Audio transcription completed (${transcript.length} characters)`);
       
       return new Response(
         JSON.stringify({
@@ -270,7 +317,9 @@ serve(async (req) => {
           videoId: videoId,
           source: 'whisper-transcription',
           success: true,
-          videoTitle: videoInfo?.title || 'Unknown'
+          videoTitle: videoInfo?.title || 'Unknown',
+          processLog: processLog,
+          audioAttemptDetails: audioAttemptDetails
         }),
         {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -279,17 +328,30 @@ serve(async (req) => {
       
     } catch (audioError) {
       console.error('Audio transcription failed:', audioError.message);
+      processLog.push(`✗ Audio transcription failed: ${audioError.message}`);
+      audioAttemptDetails.push(`Audio transcription error: ${audioError.message}`);
       
       return new Response(
         JSON.stringify({
           transcript: `[Audio Transcription Failed]
 
-This video (${videoId}) does not have automatic captions available and audio transcription failed.
+Video: ${videoInfo?.title || 'Unknown'} (${videoId})
 
-Error: ${audioError.message}
+Process Log:
+${processLog.join('\n')}
+
+Caption Attempt Details:
+${captionAttemptDetails.join('\n')}
+
+Audio Attempt Details:
+${audioAttemptDetails.join('\n')}
+
+Error Details:
+${audioError.message}
 
 This could be due to:
 - Video is private or restricted
+- YouTube blocking automated requests
 - Audio stream is not accessible
 - OpenAI API key is invalid or has insufficient credits
 - Video is too long (Whisper has a 25MB file size limit)
@@ -298,12 +360,16 @@ This could be due to:
 Please try:
 1. Using a different video with captions enabled
 2. Checking your OpenAI API key and credits
-3. Using a shorter video (under 25MB when downloaded)`,
+3. Using a shorter video (under 25MB when downloaded)
+4. Trying a public video that allows downloads`,
           videoId: videoId,
           source: 'transcription-failed',
           success: false,
           videoTitle: videoInfo?.title || 'Unknown',
-          error: audioError.message
+          error: audioError.message,
+          processLog: processLog,
+          captionAttemptDetails: captionAttemptDetails,
+          audioAttemptDetails: audioAttemptDetails
         }),
         {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -316,7 +382,8 @@ Please try:
     return new Response(
       JSON.stringify({ 
         error: error.message,
-        success: false
+        success: false,
+        processLog: [`✗ Function error: ${error.message}`]
       }),
       {
         status: 400,
