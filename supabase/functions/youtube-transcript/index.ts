@@ -483,10 +483,26 @@ async function extractDirectFromYouTube(videoId: string): Promise<string | null>
                 let audioUrl = match[1];
                 audioUrl = audioUrl.replace(/\\u002F/g, '/').replace(/\\"/g, '"');
                 
-                if (audioUrl.startsWith('http') && (audioUrl.includes('audio') || audioUrl.includes('.mp3') || audioUrl.includes('.m4a') || audioUrl.includes('.webm'))) {
-                  console.log(`Extracted audio URL: ${audioUrl.substring(0, 100)}...`);
-                  return audioUrl;
-                }
+                            if (audioUrl.startsWith('http') && 
+                (audioUrl.includes('audio') || 
+                 audioUrl.includes('.mp3') || 
+                 audioUrl.includes('.m4a') || 
+                 audioUrl.includes('.webm') ||
+                 audioUrl.includes('.wav') ||
+                 audioUrl.includes('.ogg'))) {
+              
+              // Additional validation to avoid placeholder URLs
+              if (audioUrl.length > 100 && 
+                  !audioUrl.includes('gstatic.com') && 
+                  !audioUrl.includes('placeholder') && 
+                  !audioUrl.includes('error') &&
+                  !audioUrl.includes('lottie')) {
+                console.log(`Extracted valid audio URL: ${audioUrl.substring(0, 100)}...`);
+                return audioUrl;
+              } else {
+                console.log(`Rejected invalid audio URL: ${audioUrl}`);
+              }
+            }
               } catch (patternError) {
                 console.log(`Pattern extraction failed: ${patternError.message}`);
               }
@@ -1016,8 +1032,25 @@ Note: Due to YouTube's bot detection measures, videos with existing captions are
         throw new Error('Could not extract audio stream from video - all third-party services failed');
       }
       
+      // Validate the audio URL
+      if (audioUrl.length < 100) {
+        audioAttemptDetails.push(`Audio URL too short (${audioUrl.length} chars): ${audioUrl}`);
+        throw new Error(`Invalid audio URL extracted: URL too short (${audioUrl.length} characters)`);
+      }
+      
+      if (audioUrl.includes('gstatic.com') || audioUrl.includes('placeholder') || audioUrl.includes('error')) {
+        audioAttemptDetails.push(`Invalid audio URL detected: ${audioUrl}`);
+        throw new Error(`Invalid audio URL extracted: appears to be a placeholder or error URL`);
+      }
+      
+      if (!audioUrl.startsWith('http')) {
+        audioAttemptDetails.push(`Invalid audio URL protocol: ${audioUrl}`);
+        throw new Error(`Invalid audio URL extracted: not a valid HTTP URL`);
+      }
+      
       processLog.push(`✓ Audio stream URL extracted (${audioUrl.substring(0, 50)}...)`);
       audioAttemptDetails.push(`Audio URL length: ${audioUrl.length} characters`);
+      audioAttemptDetails.push(`Audio URL domain: ${new URL(audioUrl).hostname}`);
       
       // Transcribe audio with Whisper
       processLog.push('🤖 Sending audio to OpenAI Whisper...');
