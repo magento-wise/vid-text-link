@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2, Youtube, Sparkles, Save, Trash2 } from "lucide-react";
+import { Loader2, Youtube, Sparkles, Save, Trash2, TestTube, CheckCircle, XCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 interface TranscriptInputProps {
@@ -14,8 +14,14 @@ export function TranscriptInput({ onTranscriptReceived }: TranscriptInputProps) 
   const [apiKey, setApiKey] = useState("");
   const [youtubeApiKey, setYoutubeApiKey] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [isTesting, setIsTesting] = useState(false);
   const [isApiKeySaved, setIsApiKeySaved] = useState(false);
   const [isYoutubeApiKeySaved, setIsYoutubeApiKeySaved] = useState(false);
+  const [testResults, setTestResults] = useState<{
+    openai: boolean | null;
+    youtube: boolean | null;
+    url: boolean | null;
+  }>({ openai: null, youtube: null, url: null });
   const { toast } = useToast();
 
   // Load saved API keys from localStorage on component mount
@@ -34,6 +40,91 @@ export function TranscriptInput({ onTranscriptReceived }: TranscriptInputProps) 
     }
   }, []);
 
+  // Test OpenAI API key
+  const testOpenAIKey = async (key: string): Promise<boolean> => {
+    try {
+      const response = await fetch('https://api.openai.com/v1/models', {
+        headers: {
+          'Authorization': `Bearer ${key}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      return response.ok;
+    } catch (error) {
+      return false;
+    }
+  };
+
+  // Test YouTube API key
+  const testYoutubeKey = async (key: string): Promise<boolean> => {
+    try {
+      const response = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=test&key=${key}&maxResults=1`);
+      return response.ok;
+    } catch (error) {
+      return false;
+    }
+  };
+
+  // Test YouTube URL
+  const testYouTubeUrl = async (url: string): Promise<boolean> => {
+    try {
+      const videoId = extractVideoId(url);
+      if (!videoId) return false;
+      
+      // Test if video is accessible
+      const response = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`);
+      return response.ok;
+    } catch (error) {
+      return false;
+    }
+  };
+
+  // Test all inputs
+  const testAllInputs = async () => {
+    setIsTesting(true);
+    setTestResults({ openai: null, youtube: null, url: null });
+
+    const results = {
+      openai: false,
+      youtube: false,
+      url: false
+    };
+
+    // Test OpenAI API key
+    if (apiKey.trim()) {
+      results.openai = await testOpenAIKey(apiKey);
+    }
+
+    // Test YouTube API key (if provided)
+    if (youtubeApiKey.trim()) {
+      results.youtube = await testYoutubeKey(youtubeApiKey);
+    }
+
+    // Test YouTube URL
+    if (url.trim()) {
+      results.url = await testYouTubeUrl(url);
+    }
+
+    setTestResults(results);
+
+    // Show results
+    const messages = [];
+    if (apiKey.trim() && results.openai) messages.push("✅ OpenAI API key is valid");
+    if (apiKey.trim() && !results.openai) messages.push("❌ OpenAI API key is invalid");
+    if (youtubeApiKey.trim() && results.youtube) messages.push("✅ YouTube API key is valid");
+    if (youtubeApiKey.trim() && !results.youtube) messages.push("❌ YouTube API key is invalid");
+    if (url.trim() && results.url) messages.push("✅ YouTube URL is accessible");
+    if (url.trim() && !results.url) messages.push("❌ YouTube URL is not accessible");
+
+    toast({
+      title: "Test Results",
+      description: messages.length > 0 ? messages.join(", ") : "No inputs to test",
+      variant: results.openai && results.url ? "default" : "destructive",
+    });
+
+    setIsTesting(false);
+  };
+
   // Save API key to localStorage
   const saveApiKey = () => {
     if (apiKey.trim()) {
@@ -51,6 +142,7 @@ export function TranscriptInput({ onTranscriptReceived }: TranscriptInputProps) 
     localStorage.removeItem('openai_api_key');
     setApiKey("");
     setIsApiKeySaved(false);
+    setTestResults(prev => ({ ...prev, openai: null }));
     toast({
       title: "Removed!",
       description: "OpenAI API key removed from browser storage",
@@ -74,6 +166,7 @@ export function TranscriptInput({ onTranscriptReceived }: TranscriptInputProps) 
     localStorage.removeItem('youtube_api_key');
     setYoutubeApiKey("");
     setIsYoutubeApiKeySaved(false);
+    setTestResults(prev => ({ ...prev, youtube: null }));
     toast({
       title: "Removed!",
       description: "YouTube API key removed from browser storage",
@@ -312,6 +405,26 @@ export function TranscriptInput({ onTranscriptReceived }: TranscriptInputProps) 
               <>
                 <Sparkles className="mr-2 h-5 w-5" />
                 Generate Transcript
+              </>
+            )}
+          </Button>
+          <Button 
+            type="button" 
+            onClick={testAllInputs} 
+            disabled={isLoading || isTesting} 
+            variant="outline"
+            size="lg"
+            className="w-full h-12 text-lg"
+          >
+            {isTesting ? (
+              <>
+                <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                Testing...
+              </>
+            ) : (
+              <>
+                <TestTube className="mr-2 h-5 w-5" />
+                Test All Inputs
               </>
             )}
           </Button>

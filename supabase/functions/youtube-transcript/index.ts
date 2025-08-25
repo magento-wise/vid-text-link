@@ -125,114 +125,119 @@ async function checkCaptionsAvailability(videoId: string): Promise<boolean> {
   }
 }
 
-// Function to get audio stream using yt-dlp format approach
+// Function to get audio stream using direct HTML parsing (bypasses API entirely)
 async function getAudioStreamUrl(videoId: string): Promise<string | null> {
   const maxRetries = 3;
-  const retryDelay = 2000; // 2 seconds
+  const retryDelay = 3000; // 3 seconds between retries
   
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      console.log(`Attempt ${attempt}/${maxRetries} to get audio stream URL`);
+      console.log(`Attempt ${attempt}/${maxRetries} to get audio stream URL using HTML parsing`);
       
       if (attempt > 1) {
         await new Promise(resolve => setTimeout(resolve, retryDelay));
       }
+
+      // Use direct HTML parsing approach (no API key needed)
+      const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
       
-      // Try to get YouTube API key from user input, then environment, then fallback to public key
-      // Note: The public key may have rate limits. For production use, set YOUTUBE_API_KEY environment variable
-      const youtubeApiKey = userYoutubeApiKey || Deno.env.get('YOUTUBE_API_KEY') || 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8';
-      const playerApiUrl = `https://www.youtube.com/youtubei/v1/player?key=${youtubeApiKey}`;
-    
-    const requestBody = {
-      context: {
-        client: {
-          clientName: "WEB",
-          clientVersion: "2.20231219.01.00",
-          clientScreen: "WATCH_FIXED",
-          platform: "DESKTOP",
-          browserName: "Chrome",
-          browserVersion: "120.0.0.0",
-          osName: "Windows",
-          osVersion: "10.0",
-          userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        },
-        user: {
-          lockedSafetyMode: false
-        },
-        request: {
-          useSsl: true,
-          internalExperimentFlags: [],
-          consistencyTokenJars: []
+      // Enhanced headers to appear more like a real browser
+      const headers = {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'DNT': '1',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
+        'Cache-Control': 'max-age=0',
+        'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+        'Sec-Ch-Ua-Mobile': '?0',
+        'Sec-Ch-Ua-Platform': '"macOS"'
+      };
+
+      console.log(`Fetching video page: ${videoUrl}`);
+      
+      const response = await fetch(videoUrl, {
+        method: 'GET',
+        headers: headers
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch video page: ${response.status}`);
+      }
+
+      const html = await response.text();
+      console.log(`Received HTML response: ${html.length} characters`);
+
+      // Look for ytInitialPlayerResponse in the HTML
+      const ytInitialMatch = html.match(/ytInitialPlayerResponse\s*=\s*({.+?});/);
+      if (ytInitialMatch) {
+        try {
+          const playerResponse = JSON.parse(ytInitialMatch[1]);
+          console.log(`Found ytInitialPlayerResponse with status: ${playerResponse.playabilityStatus?.status}`);
+          
+          if (playerResponse.playabilityStatus?.status !== 'OK') {
+            throw new Error(`Video not playable: ${playerResponse.playabilityStatus?.reason || 'Unknown reason'}`);
+          }
+
+          const streamingData = playerResponse.streamingData;
+          if (!streamingData) {
+            throw new Error('No streaming data available in player response');
+          }
+
+          // Look for audio formats
+          const audioFormats = streamingData.adaptiveFormats?.filter((format: any) => 
+            format.mimeType?.startsWith('audio/') && format.url
+          );
+
+          if (!audioFormats || audioFormats.length === 0) {
+            throw new Error('No audio streams found in streaming data');
+          }
+
+          // Sort by bitrate (prefer higher quality) and return the best one
+          audioFormats.sort((a: any, b: any) => (b.bitrate || 0) - (a.bitrate || 0));
+          const bestAudio = audioFormats[0];
+          
+          console.log(`Selected audio format: ${bestAudio.mimeType}, bitrate: ${bestAudio.bitrate}`);
+          return bestAudio.url;
+        } catch (parseError) {
+          console.log(`Failed to parse ytInitialPlayerResponse: ${parseError.message}`);
         }
-      },
-      videoId: videoId,
-      playbackContext: {
-        contentPlaybackContext: {
-          vis: 0,
-          sffb: false,
-          lactMilliseconds: "0"
+      }
+
+      // Try alternative patterns in HTML
+      const patterns = [
+        /"audioUrl":"([^"]+)"/,
+        /"url":"([^"]*audio[^"]*)"/,
+        /audioUrl=([^&\s]+)/,
+        /"adaptiveFormats":\[([^\]]+)\]/,
+        /"formats":\[([^\]]+)\]/
+      ];
+
+      for (const pattern of patterns) {
+        const match = html.match(pattern);
+        if (match) {
+          console.log(`Found pattern match: ${pattern.source}`);
+          try {
+            // Try to extract URL from the match
+            const urlMatch = match[1].match(/"url":"([^"]+)"/);
+            if (urlMatch && urlMatch[1].includes('audio')) {
+              const audioUrl = urlMatch[1].replace(/\\u002F/g, '/');
+              console.log(`Extracted audio URL from pattern: ${audioUrl.substring(0, 100)}...`);
+              return audioUrl;
+            }
+          } catch (patternError) {
+            console.log(`Pattern extraction failed: ${patternError.message}`);
+          }
         }
-      },
-      racyCheckOk: false,
-      contentCheckOk: false
-    };
+      }
 
-    console.log(`Fetching player data for video: ${videoId}`);
-    
-    // Enhanced headers to appear more like a real browser
-    const headers = {
-      'Content-Type': 'application/json',
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
-      'Accept-Language': 'en-US,en;q=0.9',
-      'Accept-Encoding': 'gzip, deflate, br',
-      'DNT': '1',
-      'Connection': 'keep-alive',
-      'Upgrade-Insecure-Requests': '1',
-      'Sec-Fetch-Dest': 'document',
-      'Sec-Fetch-Mode': 'navigate',
-      'Sec-Fetch-Site': 'none',
-      'Sec-Fetch-User': '?1',
-      'Cache-Control': 'max-age=0'
-    };
-
-    const response = await fetch(playerApiUrl, {
-      method: 'POST',
-      headers: headers,
-      body: JSON.stringify(requestBody)
-    });
-
-    if (!response.ok) {
-      throw new Error(`Player API request failed: ${response.status}`);
-    }
-
-    const playerData = await response.json();
-    console.log(`Player response status:`, playerData.playabilityStatus?.status);
-    
-    if (playerData.playabilityStatus?.status !== 'OK') {
-      throw new Error(`Video not playable: ${playerData.playabilityStatus?.reason || 'Unknown reason'}`);
-    }
-
-    const streamingData = playerData.streamingData;
-    if (!streamingData) {
-      throw new Error('No streaming data available in player response');
-    }
-
-    // Look for audio formats
-    const audioFormats = streamingData.adaptiveFormats?.filter((format: any) => 
-      format.mimeType?.startsWith('audio/') && format.url
-    );
-
-    if (!audioFormats || audioFormats.length === 0) {
-      throw new Error('No audio streams found');
-    }
-
-    // Sort by bitrate (prefer higher quality) and return the best one
-    audioFormats.sort((a: any, b: any) => (b.bitrate || 0) - (a.bitrate || 0));
-    const bestAudio = audioFormats[0];
-    
-    console.log(`Selected audio format: ${bestAudio.mimeType}, bitrate: ${bestAudio.bitrate}`);
-    return bestAudio.url;
+      throw new Error('No audio stream found in HTML response');
 
     } catch (error) {
       console.error(`Attempt ${attempt} failed:`, error.message);
@@ -249,66 +254,76 @@ async function getAudioStreamUrl(videoId: string): Promise<string | null> {
   return null;
 }
 
-// Alternative function to try different approaches for video data (no API key required)
+// Alternative function using different approach (no API key required)
 async function getVideoDataAlternative(videoId: string): Promise<string | null> {
   try {
-    // Try using HTML parsing approach with different endpoints (no API key needed)
-    const endpoints = [
-      `https://www.youtube.com/watch?v=${videoId}`,
-      `https://www.youtube.com/embed/${videoId}`,
-      `https://www.youtube.com/v/${videoId}`
+    // Try using different endpoints and approaches
+    const approaches = [
+      {
+        name: 'Embed endpoint',
+        url: `https://www.youtube.com/embed/${videoId}`,
+        extractor: (html: string) => {
+          const match = html.match(/ytInitialPlayerResponse\s*=\s*({.+?});/);
+          if (match) {
+            const data = JSON.parse(match[1]);
+            return data.streamingData?.adaptiveFormats?.find((f: any) => f.mimeType?.startsWith('audio/'))?.url;
+          }
+          return null;
+        }
+      },
+      {
+        name: 'V endpoint',
+        url: `https://www.youtube.com/v/${videoId}`,
+        extractor: (html: string) => {
+          const match = html.match(/ytInitialPlayerResponse\s*=\s*({.+?});/);
+          if (match) {
+            const data = JSON.parse(match[1]);
+            return data.streamingData?.adaptiveFormats?.find((f: any) => f.mimeType?.startsWith('audio/'))?.url;
+          }
+          return null;
+        }
+      },
+      {
+        name: 'Mobile endpoint',
+        url: `https://m.youtube.com/watch?v=${videoId}`,
+        extractor: (html: string) => {
+          const match = html.match(/ytInitialPlayerResponse\s*=\s*({.+?});/);
+          if (match) {
+            const data = JSON.parse(match[1]);
+            return data.streamingData?.adaptiveFormats?.find((f: any) => f.mimeType?.startsWith('audio/'))?.url;
+          }
+          return null;
+        }
+      }
     ];
 
-    for (const endpoint of endpoints) {
+    for (const approach of approaches) {
       try {
-        console.log(`Trying alternative endpoint (no API key): ${endpoint}`);
+        console.log(`Trying alternative approach: ${approach.name}`);
         
-        const response = await fetch(endpoint, {
+        const response = await fetch(approach.url, {
           headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
+            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
             'Accept-Language': 'en-US,en;q=0.9',
             'Accept-Encoding': 'gzip, deflate, br',
             'DNT': '1',
             'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1',
-            'Sec-Fetch-Dest': 'document',
-            'Sec-Fetch-Mode': 'navigate',
-            'Sec-Fetch-Site': 'none',
-            'Sec-Fetch-User': '?1'
+            'Upgrade-Insecure-Requests': '1'
           }
         });
 
         if (response.ok) {
           const html = await response.text();
+          const audioUrl = approach.extractor(html);
           
-          // Look for ytInitialPlayerResponse in the HTML
-          const ytInitialMatch = html.match(/ytInitialPlayerResponse\s*=\s*({.+?});/);
-          if (ytInitialMatch) {
-            const playerResponse = JSON.parse(ytInitialMatch[1]);
-            
-            if (playerResponse.streamingData?.adaptiveFormats) {
-              const audioFormats = playerResponse.streamingData.adaptiveFormats.filter((format: any) => 
-                format.mimeType?.startsWith('audio/') && format.url
-              );
-              
-              if (audioFormats.length > 0) {
-                audioFormats.sort((a: any, b: any) => (b.bitrate || 0) - (a.bitrate || 0));
-                console.log(`Alternative method found audio format: ${audioFormats[0].mimeType}`);
-                return audioFormats[0].url;
-              }
-            }
-          }
-          
-          // Also try looking for other patterns in the HTML
-          const audioUrlMatch = html.match(/"audioUrl":"([^"]+)"/);
-          if (audioUrlMatch) {
-            console.log('Found audio URL in HTML pattern');
-            return audioUrlMatch[1].replace(/\\u002F/g, '/');
+          if (audioUrl) {
+            console.log(`Alternative approach ${approach.name} found audio URL`);
+            return audioUrl;
           }
         }
-      } catch (endpointError) {
-        console.log(`Alternative endpoint ${endpoint} failed:`, endpointError.message);
+      } catch (approachError) {
+        console.log(`Alternative approach ${approach.name} failed:`, approachError.message);
         continue;
       }
     }
@@ -478,20 +493,20 @@ Note: Due to YouTube's bot detection measures, videos with existing captions are
       console.log('Attempting audio transcription with OpenAI Whisper...');
       processLog.push('🎵 Attempting audio transcription with OpenAI Whisper...');
       
-      // Get audio stream URL - try primary method first (uses YouTube API key if available)
-      processLog.push('🔗 Extracting audio stream URL (primary method with API key)...');
+      // Get audio stream URL - try primary method first (HTML parsing, no API key needed)
+      processLog.push('🔗 Extracting audio stream URL (HTML parsing method)...');
       let audioUrl = await getAudioStreamUrl(videoId);
       
-      // If primary method fails, try alternative approach (no API key required)
+      // If primary method fails, try alternative approach (different endpoints)
       if (!audioUrl) {
-        processLog.push('🔄 Primary method failed, trying alternative approach (no API key)...');
-        audioAttemptDetails.push('Primary method failed, trying alternative approach (no API key)');
+        processLog.push('🔄 Primary method failed, trying alternative endpoints...');
+        audioAttemptDetails.push('Primary method failed, trying alternative endpoints');
         audioUrl = await getVideoDataAlternative(videoId);
       }
       
       if (!audioUrl) {
-        audioAttemptDetails.push('Both primary and alternative methods failed to extract audio stream URL');
-        throw new Error('Could not extract audio stream from video - YouTube may be blocking automated requests');
+        audioAttemptDetails.push('Both HTML parsing methods failed to extract audio stream URL');
+        throw new Error('Could not extract audio stream from video - YouTube may be blocking HTML parsing requests');
       }
       
       processLog.push(`✓ Audio stream URL extracted (${audioUrl.substring(0, 50)}...)`);
@@ -543,7 +558,7 @@ Error Details:
 ${audioError.message}
 
 This could be due to:
-- YouTube bot detection blocking automated requests
+- YouTube blocking HTML parsing requests (bot detection)
 - Video is private or restricted
 - Audio stream is not accessible
 - OpenAI API key is invalid or has insufficient credits
@@ -552,13 +567,13 @@ This could be due to:
 
 Solutions to try:
 1. Use a video that has YouTube captions available (most reliable)
-2. Try a different YouTube video (some videos have stricter bot protection)
+2. Try a different YouTube video (some videos have stricter protection)
 3. Check your OpenAI API key and credits
 4. Use a shorter video (under 25MB when downloaded)
 5. Wait a few minutes and try again (rate limiting)
-6. Try during off-peak hours when YouTube's bot detection may be less strict
+6. Try during off-peak hours when YouTube's protection may be less strict
 
-Note: YouTube has recently increased bot detection measures, making automated video processing more challenging. Videos with existing captions are the most reliable option.`,
+Note: YouTube has recently increased protection measures against automated requests. Videos with existing captions are the most reliable option.`,
           videoId: videoId,
           source: 'transcription-failed',
           success: false,
