@@ -39,6 +39,8 @@ async function fetchYouTubeCaptions(videoId: string, youtubeApiKey?: string): Pr
           const apiUrl = `https://www.googleapis.com/youtube/v3/captions?part=snippet&videoId=${videoId}&key=${currentApiKey}`;
           
           const response = await fetch(apiUrl);
+          console.log(`YouTube API response status: ${response.status}`);
+          
           if (response.ok) {
             const data = await response.json();
             console.log(`YouTube API response:`, JSON.stringify(data).substring(0, 300));
@@ -67,6 +69,19 @@ async function fetchYouTubeCaptions(videoId: string, youtubeApiKey?: string): Pr
                   }
                 }
               }
+            }
+          } else {
+            // API call failed, get error details
+            const errorText = await response.text();
+            console.log(`YouTube API key ${i + 1} failed with status ${response.status}: ${errorText}`);
+            
+            // Check for specific error types
+            if (response.status === 403) {
+              console.log(`API key ${i + 1} quota exceeded or disabled`);
+            } else if (response.status === 400) {
+              console.log(`API key ${i + 1} invalid request`);
+            } else if (response.status === 401) {
+              console.log(`API key ${i + 1} unauthorized`);
             }
           }
         } catch (apiError) {
