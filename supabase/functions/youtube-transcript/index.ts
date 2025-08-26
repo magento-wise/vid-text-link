@@ -19,7 +19,7 @@ function extractVideoId(url: string): string | null {
 }
 
 // Function to fetch YouTube captions using multiple approaches
-async function fetchYouTubeCaptions(videoId: string, youtubeApiKey?: string): Promise<string> {
+async function fetchYouTubeCaptions(videoId: string, youtubeApiKey?: string): Promise<string | null> {
   try {
     console.log(`Attempting to fetch captions for video: ${videoId}`);
     console.log(`YouTube API key provided: ${youtubeApiKey ? 'YES' : 'NO'}`);
@@ -1200,8 +1200,15 @@ serve(async (req) => {
       console.log('Caption extraction failed:', captionError.message);
       processLog.push(`✗ Caption extraction failed: ${captionError.message}`);
       captionAttemptDetails.push(`Caption error: ${captionError.message}`);
+      captionTranscript = null; // Ensure it's null so we fall back to Whisper
     }
 
+    // Log the fallback decision
+    if (!captionTranscript) {
+      console.log('No captions found, checking for OpenAI API key for Whisper fallback...');
+      processLog.push('📝 No captions found, checking for audio transcription fallback...');
+    }
+    
     // If no captions and no OpenAI key, return detailed error
     if (!openaiApiKey) {
       processLog.push('✗ No OpenAI API key provided for audio transcription');
