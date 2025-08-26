@@ -1148,6 +1148,10 @@ serve(async (req) => {
   try {
     const { youtubeUrl, openaiApiKey, youtubeApiKey: userYoutubeApiKey } = await req.json();
     
+    console.log(`Received request - YouTube URL: ${youtubeUrl ? 'YES' : 'NO'}, OpenAI API Key: ${openaiApiKey ? 'YES' : 'NO'}, YouTube API Key: ${userYoutubeApiKey ? 'YES' : 'NO'}`);
+    console.log(`OpenAI API Key length: ${openaiApiKey ? openaiApiKey.length : 0}`);
+    console.log(`OpenAI API Key starts with sk-: ${openaiApiKey ? openaiApiKey.startsWith('sk-') : false}`);
+    
     if (!youtubeUrl) {
       throw new Error('YouTube URL is required');
     }
@@ -1210,7 +1214,9 @@ serve(async (req) => {
     }
     
     // If no captions and no OpenAI key, return detailed error
+    console.log(`Checking OpenAI API key: ${openaiApiKey ? 'PROVIDED' : 'NOT PROVIDED'}`);
     if (!openaiApiKey) {
+      console.log('No OpenAI API key found, returning error response');
       processLog.push('✗ No OpenAI API key provided for audio transcription');
       
       return new Response(

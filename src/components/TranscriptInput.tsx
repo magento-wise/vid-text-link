@@ -283,16 +283,31 @@ export function TranscriptInput({ onTranscriptReceived }: TranscriptInputProps) 
         </CardDescription>
       </CardHeader>
       <CardContent>
+        <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+          <div className="flex items-start gap-2">
+            <Sparkles className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
+            <div className="text-sm">
+              <p className="font-medium text-blue-900 mb-1">💡 How it works:</p>
+              <ul className="text-blue-800 space-y-1">
+                <li>• <strong>First</strong>: Try to get captions from YouTube (fastest)</li>
+                <li>• <strong>If no captions</strong>: Use your ChatGPT API key for audio transcription</li>
+                <li>• <strong>Save your API key</strong> to avoid entering it every time</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+        
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
-            <label htmlFor="openai-key" className="text-sm font-medium">
-              OpenAI API Key
+            <label htmlFor="openai-key" className="text-sm font-medium flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-primary" />
+              ChatGPT/OpenAI API Key (Required for Audio Transcription)
             </label>
             <div className="flex gap-2">
               <Input
                 id="openai-key"
                 type="password"
-                placeholder="sk-..."
+                placeholder="sk-... (Get from https://platform.openai.com/api-keys)"
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
                 disabled={isLoading}
@@ -322,17 +337,23 @@ export function TranscriptInput({ onTranscriptReceived }: TranscriptInputProps) 
                 </Button>
               )}
             </div>
-            <p className="text-xs text-muted-foreground">
-              {isApiKeySaved 
-                ? "✅ API key saved in browser storage" 
-                : "Your API key is only used for this request and is not stored anywhere."
-              }
-            </p>
+            <div className="text-xs text-muted-foreground space-y-1">
+              {isApiKeySaved ? (
+                <p className="text-green-600 font-medium">✅ API key saved in browser storage</p>
+              ) : (
+                <>
+                  <p>🔑 <strong>Required for videos without captions</strong> - Used for Whisper audio transcription</p>
+                  <p>💾 Click the save button to store your key locally (never sent to our servers)</p>
+                  <p>🔗 Get your API key from <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">OpenAI Platform</a></p>
+                </>
+              )}
+            </div>
           </div>
           
           <div className="space-y-2">
-            <label htmlFor="youtube-api-key" className="text-sm font-medium">
-              YouTube API Key (Optional)
+            <label htmlFor="youtube-api-key" className="text-sm font-medium flex items-center gap-2">
+              <Youtube className="h-4 w-4 text-red-500" />
+              YouTube API Key (Optional - for Better Caption Access)
             </label>
             <div className="flex gap-2">
               <Input
@@ -368,12 +389,17 @@ export function TranscriptInput({ onTranscriptReceived }: TranscriptInputProps) 
                 </Button>
               )}
             </div>
-            <p className="text-xs text-muted-foreground">
-              {isYoutubeApiKeySaved 
-                ? "✅ YouTube API key saved in browser storage" 
-                : "Optional: Add your own YouTube API key for better rate limits. If not provided, a public key will be used."
-              }
-            </p>
+            <div className="text-xs text-muted-foreground space-y-1">
+              {isYoutubeApiKeySaved ? (
+                <p className="text-green-600 font-medium">✅ YouTube API key saved in browser storage</p>
+              ) : (
+                <>
+                  <p>📺 <strong>Optional</strong> - Improves caption extraction success rate</p>
+                  <p>🔄 Helps avoid rate limits and bot detection</p>
+                  <p>🔗 Get your API key from <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Google Cloud Console</a></p>
+                </>
+              )}
+            </div>
           </div>
           <div className="space-y-2">
             <label htmlFor="youtube-url" className="text-sm font-medium">
