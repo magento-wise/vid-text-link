@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube Audio Transcriber</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📺 YouTube Transcript Extractor</h1>
+            <p>Extract transcripts from YouTube videos with captions</p>
+        </header>
+
+        <main>
+            <form id="transcribeForm" class="form">
+                <div class="form-group">
+                    <label for="apiKey">OpenAI API Key (Optional - for future audio transcription)</label>
+                                            <input 
+                            type="password" 
+                            id="apiKey" 
+                            name="apiKey" 
+                            placeholder="sk-..." 
+                            class="form-input"
+                            autocomplete="new-password"
+                        >
+                    <div class="input-status">
+                        <small class="help-text">
+                            Get your API key from <a href="https://platform.openai.com/api-keys" target="_blank">OpenAI Platform</a> (optional)
+                        </small>
+                        <span id="apiKeyStatus" class="saved-status">💾 Auto-saving...</span>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="youtubeUrl">YouTube URL *</label>
+                    <input 
+                        type="url" 
+                        id="youtubeUrl" 
+                        name="youtubeUrl" 
+                        placeholder="https://www.youtube.com/watch?v=..." 
+                        required
+                        class="form-input"
+                    >
+                    <small class="help-text">
+                        Paste any YouTube video URL
+                    </small>
+                </div>
+
+                <button type="submit" id="submitBtn" class="btn btn-primary">
+                    <span id="btnText">📺 Extract Transcript</span>
+                    <span id="btnLoading" class="loading" style="display: none;">
+                        <span class="spinner"></span> Processing...
+                    </span>
+                </button>
+            </form>
+
+            <div id="result" class="result" style="display: none;">
+                <h3>📝 Transcript Result</h3>
+                <div class="result-content">
+                    <textarea id="transcript" readonly class="transcript-textarea"></textarea>
+                    <div class="result-actions">
+                        <button id="copyBtn" class="btn btn-secondary">📋 Copy to Clipboard</button>
+                        <button id="downloadBtn" class="btn btn-secondary">💾 Download as TXT</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="error" class="error" style="display: none;">
+                <h3>❌ Error</h3>
+                <p id="errorMessage"></p>
+            </div>
+        </main>
+        
+        <!-- Audio Upload Section -->
+        <main class="mt-8">
+            <div class="bg-white rounded-lg shadow-lg p-6">
+                <h2 class="text-2xl font-bold mb-4 text-center">🎤 Direct Audio Transcription</h2>
+                <p class="text-center text-gray-600 mb-6">Upload audio files directly for transcription</p>
+                
+                <form id="uploadForm" class="space-y-4">
+                    <div class="space-y-2">
+                        <label for="uploadApiKey" class="text-sm font-medium flex items-center gap-2">
+                            <Sparkles className="h-4 w-4 text-primary" />
+                            OpenAI API Key *
+                        </label>
+                        <input 
+                            type="password" 
+                            id="uploadApiKey" 
+                            placeholder="sk-..." 
+                            required
+                            class="form-input"
+                        >
+                    </div>
+                    
+                    <div class="space-y-2">
+                        <label for="audioFile" class="text-sm font-medium flex items-center gap-2">
+                            <Upload className="h-4 w-4 text-blue-500" />
+                            Audio File *
+                        </label>
+                        <input 
+                            type="file" 
+                            id="audioFile" 
+                            accept=".mp3,.mp4,.mpeg,.mpga,.m4a,.wav,.webm" 
+                            required
+                            class="form-input"
+                        >
+                        <small class="help-text">
+                            Supported formats: MP3, MP4, MPEG, MPGA, M4A, WAV, WebM (max 25MB)
+                        </small>
+                    </div>
+                    
+                    <button type="submit" id="uploadBtn" class="btn btn-primary">
+                        <span id="uploadBtnText">🎤 Transcribe Audio File</span>
+                        <span id="uploadBtnLoading" class="loading" style="display: none;">
+                            <span class="spinner"></span> Processing...
+                        </span>
+                    </button>
+                </form>
+                
+                <div id="uploadResult" class="result" style="display: none;">
+                    <h3>📝 Upload Transcription Result</h3>
+                    <div class="result-content">
+                        <textarea id="uploadTranscript" readonly class="transcript-textarea"></textarea>
+                        <div class="result-actions">
+                            <button id="uploadCopyBtn" class="btn btn-secondary">📋 Copy to Clipboard</button>
+                            <button id="uploadDownloadBtn" class="btn btn-secondary">💾 Download as TXT</button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div id="uploadError" class="error" style="display: none;">
+                    <h3>❌ Upload Error</h3>
+                    <p id="uploadErrorMessage"></p>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
