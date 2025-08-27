@@ -110,7 +110,7 @@ transcribeForm.addEventListener('submit', async function(e) {
     hideResult();
     
     try {
-        const response = await fetch('/transcribe', {
+        const response = await fetch('/api/transcribe', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
